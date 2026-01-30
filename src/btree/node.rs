@@ -24,11 +24,10 @@ pub struct UniversalNode<K, V> {
     pub is_dirty: bool,
 
     /// Explicit node type to avoid ambiguity
-    #[serde(skip)]
     pub node_type: NodeType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub enum NodeType {
     #[default]
     Leaf,
@@ -80,7 +79,7 @@ where
     pub fn validate(&self) -> Result<(), StorageError> {
         // Check key count matches actual keys
         if self.key_count as usize != self.keys.len() {
-            return Err(StorageError::BlockCorrupted(0)); // We don't have block ID here
+            return Err(StorageError::BlockCorrupted(0));
         }
 
         if self.is_internal() {
@@ -147,14 +146,15 @@ where
             return Err(StorageError::BlockCorrupted(0));
         }
 
-        let index = self.find_key_index(&key);
-        self.keys.insert(index, key);
-
         // For empty internal node, we need to set up child_ids correctly
         if self.child_ids.is_empty() {
+            self.keys.push(key);
             self.child_ids.push(left_child);
             self.child_ids.push(right_child);
         } else {
+            let index = self.find_key_index(&key);
+            self.keys.insert(index, key);
+            // Insert right child at index + 1, replace left child at index
             self.child_ids.insert(index + 1, right_child);
             self.child_ids[index] = left_child;
         }
@@ -204,15 +204,14 @@ where
             return Err(StorageError::BlockCorrupted(0));
         }
 
-        let split_idx = self.key_count as usize / 2;
-        let split_key = self.keys[split_idx].clone();
+        let split_idx = self.keys.len() / 2;
 
-        let new_node = if self.is_leaf() {
-            // Leaf node split - split key moves up, right gets keys after split
-            let right_keys = self.keys.split_off(split_idx + 1);
-            let right_values = self.values.split_off(split_idx + 1);
+        if self.is_leaf() {
+            let split_key = self.keys[split_idx].clone();
+            let right_keys = self.keys.split_off(split_idx);
+            let right_values = self.values.split_off(split_idx);
 
-            Self {
+            let new_node = Self {
                 key_count: right_keys.len() as u32,
                 keys: right_keys,
                 child_ids: Vec::new(),
@@ -220,13 +219,19 @@ where
                 next_leaf: self.next_leaf,
                 is_dirty: true,
                 node_type: NodeType::Leaf,
-            }
+            };
+
+            self.key_count = self.keys.len() as u32;
+            self.is_dirty = true;
+
+            Ok((split_key, new_node))
         } else {
-            // Internal node split (move split key up)
+            let split_key = self.keys[split_idx].clone();
             let right_keys = self.keys.split_off(split_idx + 1);
             let right_children = self.child_ids.split_off(split_idx + 1);
+            self.keys.pop(); // Remove the promoted key from left node
 
-            Self {
+            let new_node = Self {
                 key_count: right_keys.len() as u32,
                 keys: right_keys,
                 child_ids: right_children,
@@ -234,13 +239,13 @@ where
                 next_leaf: None,
                 is_dirty: true,
                 node_type: NodeType::Internal,
-            }
-        };
+            };
 
-        self.key_count = self.keys.len() as u32;
-        self.is_dirty = true;
+            self.key_count = self.keys.len() as u32;
+            self.is_dirty = true;
 
-        Ok((split_key, new_node))
+            Ok((split_key, new_node))
+        }
     }
 
     /// Merge this node with another (used during deletion)
@@ -257,14 +262,12 @@ where
         }
 
         if self.is_internal() {
-            // Merge internal nodes
             if let Some(sep) = separator {
                 self.keys.push(sep);
             }
             self.keys.extend(other.keys.iter().cloned());
             self.child_ids.extend(&other.child_ids);
         } else {
-            // Merge leaf nodes
             self.keys.extend(other.keys.iter().cloned());
             self.values.extend(other.values.iter().cloned());
             self.next_leaf = other.next_leaf;
@@ -276,14 +279,93 @@ where
         Ok(())
     }
 
-    /// Check if node is full (based on provided capacity)
-    pub fn is_full(&self, capacity: usize) -> bool {
-        self.key_count as usize >= capacity
+    pub fn borrow_from_left(
+        &mut self,
+        left_sibling: &mut UniversalNode<K, V>,
+        parent_separator: &mut K,
+    ) -> Result<(), StorageError>
+    where
+        K: Clone,
+    {
+        if self.is_leaf() {
+            if let Some(key) = left_sibling.keys.pop() {
+                if let Some(value) = left_sibling.values.pop() {
+                    self.keys.insert(0, key.clone());
+                    self.values.insert(0, value);
+                    *parent_separator = key;
+                }
+            }
+        } else {
+            // Internal node redistribution (B-tree style)
+            if let Some(key) = left_sibling.keys.pop() {
+                if let Some(child) = left_sibling.child_ids.pop() {
+                    // Parent separator comes down to this node
+                    self.keys.insert(0, parent_separator.clone());
+                    self.child_ids.insert(0, child);
+                    // Left sibling's key moves up to parent
+                    *parent_separator = key;
+                }
+            }
+        }
+
+        left_sibling.key_count = left_sibling.keys.len() as u32;
+        self.key_count = self.keys.len() as u32;
+        left_sibling.is_dirty = true;
+        self.is_dirty = true;
+
+        Ok(())
     }
 
-    /// Check if node has minimum required keys
-    pub fn is_minimal(&self, min_keys: usize) -> bool {
-        self.key_count as usize <= min_keys
+    pub fn borrow_from_right(
+        &mut self,
+        right_sibling: &mut UniversalNode<K, V>,
+        parent_separator: &mut K,
+    ) -> Result<(), StorageError>
+    where
+        K: Clone,
+    {
+        if self.is_leaf() {
+            if !right_sibling.keys.is_empty() {
+                let key = right_sibling.keys.remove(0);
+                let value = right_sibling.values.remove(0);
+                self.keys.push(key);
+                self.values.push(value);
+                // Update parent separator to the NEW first key of right sibling
+                if let Some(next_key) = right_sibling.keys.first() {
+                    *parent_separator = next_key.clone();
+                }
+            }
+        } else {
+            // Internal node redistribution
+            if !right_sibling.keys.is_empty() {
+                let key = right_sibling.keys.remove(0);
+                let child = right_sibling.child_ids.remove(0);
+                // Parent separator comes down to this node
+                self.keys.push(parent_separator.clone());
+                self.child_ids.push(child);
+                // Right sibling's key moves up to parent
+                *parent_separator = key;
+            }
+        }
+
+        right_sibling.key_count = right_sibling.keys.len() as u32;
+        self.key_count = self.keys.len() as u32;
+        right_sibling.is_dirty = true;
+        self.is_dirty = true;
+
+        Ok(())
+    }
+
+    pub fn first_key(&self) -> Option<&K> {
+        self.keys.first()
+    }
+
+    pub fn last_key(&self) -> Option<&K> {
+        self.keys.last()
+    }
+
+    pub fn min_keys(&self, max_keys: usize) -> usize {
+        (max_keys + 1) / 2 - 1
     }
 }
 
@@ -306,7 +388,7 @@ mod tests {
         let internal: UniversalNode<u32, u32> = UniversalNode {
             key_count: 2,
             keys: vec![1, 3],
-            child_ids: vec![0, 1, 2], // Has children
+            child_ids: vec![0, 1, 2],
             values: vec![],
             next_leaf: None,
             is_dirty: false,
@@ -316,7 +398,7 @@ mod tests {
         let leaf: UniversalNode<u32, u32> = UniversalNode {
             key_count: 2,
             keys: vec![1, 3],
-            child_ids: vec![], // No children
+            child_ids: vec![],
             values: vec![10, 30],
             next_leaf: None,
             is_dirty: false,
@@ -347,17 +429,13 @@ mod tests {
     fn test_internal_operations() {
         let mut node = UniversalNode::<u32, u32>::new_internal();
 
-        // For manual construction, let's build it step by step
         node.insert_internal(5, 0, 1).unwrap();
-        // After first insert: keys=[5], child_ids=[0,1]
         assert_eq!(node.keys, vec![5]);
         assert_eq!(node.child_ids, vec![0, 1]);
 
-        // Test basic functionality
         assert_eq!(node.get_child_id(0), Some(0));
         assert_eq!(node.get_child_id(1), Some(1));
 
-        // Test that validation passes
         node.validate().unwrap();
     }
 
@@ -367,13 +445,10 @@ mod tests {
         for i in 0..4 {
             leaf.insert_leaf(i * 2, i * 20).unwrap();
         }
-        // Before split: keys=[0,2,4,6], values=[0,20,40,60]
 
         let (split_key, right_node) = leaf.split().unwrap();
-        // For 4 keys, split_idx=2, split_key=4
-        // After split: left=[0,2,4], right=[6], split_key=4 moves up
-        assert_eq!(split_key, 4); // Middle key moves up
-        assert_eq!(leaf.keys, vec![0, 2, 4]);
-        assert_eq!(right_node.keys, vec![6]);
+        assert_eq!(split_key, 4);
+        assert_eq!(leaf.keys, vec![0, 2]);
+        assert_eq!(right_node.keys, vec![4, 6]);
     }
 }

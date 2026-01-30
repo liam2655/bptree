@@ -1,7 +1,7 @@
-# Analysis Report: B-tree Implementation with Pluggable Storage
+# Analysis Report: B+ Tree Implementation with Pluggable Storage
 
 ## Overview
-This document provides a comprehensive analysis of the Rust persistent B-tree implementation with pluggable storage backends, focusing on architecture, design decisions, and technical implementation details.
+This document provides a comprehensive analysis of the Rust persistent B+ tree implementation with pluggable storage backends, focusing on architecture, design decisions, and technical implementation details.
 
 ## Project Structure Analysis
 
@@ -9,11 +9,11 @@ This document provides a comprehensive analysis of the Rust persistent B-tree im
 ```
 src/
 ├── lib.rs              # Main library interface and exports
-├── btree/             # B-tree implementation
+├── btree/             # B+ tree implementation
 │   ├── mod.rs         # Module exports
 │   ├── node.rs        # Unified node structure (internal/leaf)
-│   ├── tree.rs        # Core B-tree operations and persistence
-│   └── error.rs       # B-tree specific error types
+│   ├── tree.rs        # Core B+ tree operations and persistence
+│   └── error.rs       # B+ tree specific error types
 ├── storage/            # Storage abstraction layer
 │   ├── mod.rs         # Module exports
 │   ├── storage_trait.rs # BlockStorage trait interface
@@ -38,13 +38,13 @@ src/
 - **BlockSerializer**: Efficient, block-aware serialization with padding
 - **Type Safety**: Generic serialization with proper error handling
 
-#### 4. B-tree Implementation (`btree/tree.rs`)
+#### 4. B+ Tree Implementation (`btree/tree.rs`)
 - **Core Operations**: Insert, get, delete, range scan
 - **Persistence Logic**: Root management, metadata handling, atomic writes
-- **Split/Merge Algorithms**: Proper B-tree balancing logic
+- **Split/Merge Algorithms**: Proper B+ tree balancing logic
 
 #### 5. Error Handling (`btree/error.rs`)
-- **Comprehensive Error Types**: StorageError wrapper with specific B-tree errors
+- **Comprehensive Error Types**: StorageError wrapper with specific B+ tree errors
 - **Error Propagation**: Full Result type integration
 
 ## Architecture Strengths
@@ -95,7 +95,7 @@ pub struct UniversalNode<K, V> {
 - **Free Space Management**: Bitmap tracking of deallocated blocks
 - **Metadata Management**: Special block (ID 0) for tree metadata
 
-#### 2. B-Tree Operations
+#### 2. B+ Tree Operations
 - **Balancing**: Proper split and merge algorithms
 - **Recursive Operations**: Insert, search, and delete with correct backtracking
 - **Root Management**: Automatic root creation and replacement during splits
@@ -201,7 +201,7 @@ impl BlockStorage for CustomStorage {
     // Required trait methods...
 }
 
-// B-tree with custom serialization
+// B+ tree with custom serialization
 #[derive(Serialize, Deserialize)]
 struct CustomKey {
     // Custom key fields...
@@ -214,7 +214,7 @@ let mut tree: BTree<CustomKey, CustomValue, CustomStorage> = BTree::new(custom_s
 
 ### Current Test Coverage
 - **Unit Tests**: Individual component testing (node, storage, serialization)
-- **Integration Tests**: Full B-tree operations with file storage
+- **Integration Tests**: Full B+ tree operations with file storage
 - **Edge Cases**: Empty trees, single nodes, maximum capacity scenarios
 - **Error Cases**: Storage failures, corruption detection, recovery
 
@@ -232,7 +232,7 @@ let mut tree: BTree<CustomKey, CustomValue, CustomStorage> = BTree::new(custom_s
 
 #### 3. Low Priority
 - **Alternative Storage Backends**: Memory-mapped files, database backends
-- **Advanced B-tree Variants**: B+ trees, adaptive algorithms
+- **Advanced B+ Tree Variants**: Adaptive algorithms
 - **Benchmark Suite**: Comprehensive performance measurement
 - **Documentation**: API documentation and usage examples
 
@@ -251,7 +251,7 @@ let mut tree: BTree<CustomKey, CustomValue, CustomStorage> = BTree::new(custom_s
 
 ## Conclusion
 
-This B-tree implementation demonstrates excellent software engineering practices:
+This B+ tree implementation demonstrates excellent software engineering practices:
 
 1. **Clean Architecture**: Well-structured, modular design with clear separation of concerns
 2. **Type Safety**: Full utilization of Rust's type system and lifetime management
@@ -259,7 +259,7 @@ This B-tree implementation demonstrates excellent software engineering practices
 4. **Performance**: Efficient algorithms with appropriate data structures
 5. **Maintainability**: Clear code organization and comprehensive testing
 
-The implementation provides a solid foundation for persistent key-value storage with B-tree organization, suitable for use in production systems or as a library component in larger applications.
+The implementation provides a solid foundation for persistent key-value storage with B+ tree organization, suitable for use in production systems or as a library component in larger applications.
 
 ## Next Steps
 

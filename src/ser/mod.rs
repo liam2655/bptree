@@ -32,14 +32,7 @@ impl BlockSerializer {
         K: for<'de> serde::Deserialize<'de> + serde::Serialize + Ord + Clone,
         V: for<'de> serde::Deserialize<'de> + serde::Serialize + Clone,
     {
-        let mut node: UniversalNode<K, V> = bincode::deserialize(data)?;
-
-        // Set node type based on content - internal nodes have children, leaf nodes have values
-        if !node.child_ids.is_empty() {
-            node.node_type = crate::btree::node::NodeType::Internal;
-        } else {
-            node.node_type = crate::btree::node::NodeType::Leaf;
-        }
+        let node: UniversalNode<K, V> = bincode::deserialize(data)?;
 
         node.validate()?;
         Ok(node)

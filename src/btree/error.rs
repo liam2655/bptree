@@ -7,6 +7,9 @@ pub enum BTreeError {
     KeyNotFound,
     NodeCorrupted,
     InvalidOperation,
+    Underflow,
+    MergeFailed,
+    SiblingNotFound,
 }
 
 impl std::fmt::Display for BTreeError {
@@ -16,6 +19,9 @@ impl std::fmt::Display for BTreeError {
             BTreeError::KeyNotFound => write!(f, "Key not found"),
             BTreeError::NodeCorrupted => write!(f, "Node corrupted"),
             BTreeError::InvalidOperation => write!(f, "Invalid operation"),
+            BTreeError::Underflow => write!(f, "Node underflow"),
+            BTreeError::MergeFailed => write!(f, "Cannot merge with siblings"),
+            BTreeError::SiblingNotFound => write!(f, "No sibling available for rebalancing"),
         }
     }
 }
@@ -26,4 +32,19 @@ impl From<StorageError> for BTreeError {
     fn from(err: StorageError) -> Self {
         BTreeError::Storage(err)
     }
+}
+
+/// Result of a deletion operation
+#[derive(Debug)]
+pub enum DeleteResult<K, V> {
+    NoChange,
+    KeyRemoved(V),
+    Underflow {
+        node_id: crate::storage::BlockId,
+        value: Option<V>,
+        left_sibling: Option<crate::storage::BlockId>,
+        right_sibling: Option<crate::storage::BlockId>,
+        new_separator: Option<K>,
+    },
+    TreeEmpty,
 }
