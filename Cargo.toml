@@ -1,10 +1,10 @@
 [package]
-name = "btree"
+name = "bptree"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "btree"
+name = "bptree"
 path = "src/lib.rs"
 
 [dependencies]

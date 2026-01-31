@@ -1,5 +1,5 @@
-use crate::btree::error::{BTreeError, DeleteResult};
-use crate::btree::node::UniversalNode;
+use crate::bptree::error::{BPTreeError, DeleteResult};
+use crate::bptree::node::UniversalNode;
 use crate::ser::BlockSerializer;
 use crate::storage::{BlockId, BlockStorage, StorageError};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 
 /// B-tree metadata stored in a special block
 #[derive(Debug, Serialize, Deserialize)]
-struct BTreeMetadata {
+struct BPTreeMetadata {
     root_id: Option<BlockId>,
     block_size: usize,
     max_keys_per_node: usize,
@@ -15,7 +15,7 @@ struct BTreeMetadata {
 }
 
 /// Persistent B-tree implementation with pluggable storage
-pub struct BTree<K, V, S>
+pub struct BPTree<K, V, S>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
@@ -29,7 +29,7 @@ where
     _phantom: PhantomData<(K, V)>,
 }
 
-impl<K, V, S> BTree<K, V, S>
+impl<K, V, S> BPTree<K, V, S>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
@@ -39,7 +39,7 @@ where
         let block_size = storage.block_size();
         let max_keys_per_node = Self::estimate_max_keys(block_size);
 
-        let mut btree = Self {
+        let mut bptree = Self {
             storage,
             metadata_id: 0,
             root_id: None,
@@ -48,8 +48,8 @@ where
             _phantom: PhantomData,
         };
 
-        btree.load_or_init_metadata()?;
-        Ok(btree)
+        bptree.load_or_init_metadata()?;
+        Ok(bptree)
     }
 
     fn estimate_max_keys(block_size: usize) -> usize {
@@ -61,7 +61,7 @@ where
     fn load_or_init_metadata(&mut self) -> Result<(), StorageError> {
         match self.storage.read_block(self.metadata_id) {
             Ok(data) => {
-                if let Ok(metadata) = bincode::deserialize::<BTreeMetadata>(&data) {
+                if let Ok(metadata) = bincode::deserialize::<BPTreeMetadata>(&data) {
                     self.root_id = metadata.root_id;
                     self.max_keys_per_node = metadata.max_keys_per_node;
                     self.entry_count = metadata.entry_count;
@@ -84,7 +84,7 @@ where
             self.storage.allocate_block()?;
         }
 
-        let metadata = BTreeMetadata {
+        let metadata = BPTreeMetadata {
             root_id: None,
             block_size: self.storage.block_size(),
             max_keys_per_node: self.max_keys_per_node,
@@ -125,7 +125,7 @@ where
     }
 
     fn save_metadata(&mut self) -> Result<(), StorageError> {
-        let metadata = BTreeMetadata {
+        let metadata = BPTreeMetadata {
             root_id: self.root_id,
             block_size: self.storage.block_size(),
             max_keys_per_node: self.max_keys_per_node,
@@ -282,18 +282,18 @@ where
         Ok(())
     }
 
-    pub fn iter(&self) -> Result<crate::btree::iterator::BTreeIter<'_, K, V, S>, StorageError> {
-        crate::btree::iterator::BTreeIter::new(self)
+    pub fn iter(&self) -> Result<crate::bptree::iterator::BPTreeIter<'_, K, V, S>, StorageError> {
+        crate::bptree::iterator::BPTreeIter::new(self)
     }
 
     pub fn iter_range<R>(
         &self,
         range: R,
-    ) -> Result<crate::btree::iterator::BTreeRangeIter<'_, K, V, S, R>, StorageError>
+    ) -> Result<crate::bptree::iterator::BPTreeRangeIter<'_, K, V, S, R>, StorageError>
     where
         R: std::ops::RangeBounds<K>,
     {
-        crate::btree::iterator::BTreeRangeIter::new(self, range)
+        crate::bptree::iterator::BPTreeRangeIter::new(self, range)
     }
 
     pub fn get(&self, key: &K) -> Result<Option<V>, StorageError> {
@@ -385,10 +385,10 @@ where
     }
 
     /// Delete a key from the B+ tree
-    pub fn validate(&self) -> Result<(), BTreeError> {
+    pub fn validate(&self) -> Result<(), BPTreeError> {
         let Some(root_id) = self.root_id else {
             if self.entry_count != 0 {
-                return Err(BTreeError::ValidationFailed(
+                return Err(BPTreeError::ValidationFailed(
                     "Root is None but entry_count is not 0".into(),
                 ));
             }
@@ -399,7 +399,7 @@ where
         let actual_count = self.validate_recursive(root_id, 0, &mut leaf_depth, None, None)?;
 
         if actual_count != self.entry_count {
-            return Err(BTreeError::ValidationFailed(format!(
+            return Err(BPTreeError::ValidationFailed(format!(
                 "entry_count mismatch: expected {}, actual {}",
                 self.entry_count, actual_count
             )));
@@ -415,22 +415,22 @@ where
         leaf_depth: &mut Option<usize>,
         min_key: Option<&K>,
         max_key: Option<&K>,
-    ) -> Result<u64, BTreeError> {
-        let node = self.load_node(node_id).map_err(BTreeError::Storage)?;
-        node.validate().map_err(|_| BTreeError::NodeCorrupted)?;
+    ) -> Result<u64, BPTreeError> {
+        let node = self.load_node(node_id).map_err(BPTreeError::Storage)?;
+        node.validate().map_err(|_| BPTreeError::NodeCorrupted)?;
 
         // Check key range
         for key in &node.keys {
             if let Some(min) = min_key {
                 if key < min {
-                    return Err(BTreeError::ValidationFailed(
+                    return Err(BPTreeError::ValidationFailed(
                         "Key violates min bound".into(),
                     ));
                 }
             }
             if let Some(max) = max_key {
                 if key >= max {
-                    return Err(BTreeError::ValidationFailed(
+                    return Err(BPTreeError::ValidationFailed(
                         "Key violates max bound".into(),
                     ));
                 }
@@ -440,7 +440,7 @@ where
         if node.is_leaf() {
             if let Some(d) = *leaf_depth {
                 if d != depth {
-                    return Err(BTreeError::ValidationFailed(format!(
+                    return Err(BPTreeError::ValidationFailed(format!(
                         "Leaf depth mismatch: expected {}, got {}",
                         d, depth
                     )));
@@ -741,55 +741,55 @@ mod tests {
     fn test_basic_insert_get() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<String, String, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<String, String, _> = BPTree::new(storage).unwrap();
 
-        btree
+        bptree
             .insert("key1".to_string(), "value1".to_string())
             .unwrap();
-        if let Err(e) = btree.insert("key2".to_string(), "value2".to_string()) {
+        if let Err(e) = bptree.insert("key2".to_string(), "value2".to_string()) {
             panic!("Insert failed: {:?}", e);
         }
 
         assert_eq!(
-            btree.get(&"key1".to_string()).unwrap(),
+            bptree.get(&"key1".to_string()).unwrap(),
             Some("value1".to_string())
         );
         assert_eq!(
-            btree.get(&"key2".to_string()).unwrap(),
+            bptree.get(&"key2".to_string()).unwrap(),
             Some("value2".to_string())
         );
-        assert_eq!(btree.get(&"missing".to_string()).unwrap(), None);
+        assert_eq!(bptree.get(&"missing".to_string()).unwrap(), None);
     }
 
     #[test]
     fn test_basic_delete() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<String, String, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<String, String, _> = BPTree::new(storage).unwrap();
 
-        btree
+        bptree
             .insert("key1".to_string(), "value1".to_string())
             .unwrap();
-        btree
+        bptree
             .insert("key2".to_string(), "value2".to_string())
             .unwrap();
 
         assert_eq!(
-            btree.delete(&"key1".to_string()).unwrap(),
+            bptree.delete(&"key1".to_string()).unwrap(),
             Some("value1".to_string())
         );
-        assert_eq!(btree.get(&"key1".to_string()).unwrap(), None);
+        assert_eq!(bptree.get(&"key1".to_string()).unwrap(), None);
         assert_eq!(
-            btree.get(&"key2".to_string()).unwrap(),
+            bptree.get(&"key2".to_string()).unwrap(),
             Some("value2".to_string())
         );
 
         assert_eq!(
-            btree.delete(&"key2".to_string()).unwrap(),
+            bptree.delete(&"key2".to_string()).unwrap(),
             Some("value2".to_string())
         );
-        assert_eq!(btree.get(&"key2".to_string()).unwrap(), None);
-        assert!(btree.root_id.is_none());
+        assert_eq!(bptree.get(&"key2".to_string()).unwrap(), None);
+        assert!(bptree.root_id.is_none());
     }
 
     #[test]
@@ -797,20 +797,20 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         // Use small block size to force splits/redistribution
         let storage = FileBlockStorage::new(temp_dir.path(), 512).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
         // Insert enough keys to cause a split
         for i in 0..20 {
-            btree.insert(i, i * 10).unwrap();
+            bptree.insert(i, i * 10).unwrap();
         }
 
         // Delete keys to trigger redistribution
         for i in 0..10 {
-            btree.delete(&i).unwrap();
+            bptree.delete(&i).unwrap();
         }
 
         for i in 10..20 {
-            assert_eq!(btree.get(&i).unwrap(), Some(i * 10));
+            assert_eq!(bptree.get(&i).unwrap(), Some(i * 10));
         }
     }
 
@@ -818,21 +818,21 @@ mod tests {
     fn test_delete_with_merge() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 512).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
         for i in 0..20 {
-            btree.insert(i, i * 10).unwrap();
+            bptree.insert(i, i * 10).unwrap();
         }
 
         // Delete most keys to trigger merges
         for i in 0..18 {
-            btree.delete(&i).unwrap();
+            bptree.delete(&i).unwrap();
         }
 
-        assert_eq!(btree.get(&18).unwrap(), Some(180));
-        assert_eq!(btree.get(&19).unwrap(), Some(190));
+        assert_eq!(bptree.get(&18).unwrap(), Some(180));
+        assert_eq!(bptree.get(&19).unwrap(), Some(190));
 
-        let root = btree.load_node(btree.root_id.unwrap()).unwrap();
+        let root = bptree.load_node(bptree.root_id.unwrap()).unwrap();
         assert!(root.is_leaf());
     }
 
@@ -840,20 +840,20 @@ mod tests {
     fn test_iter_empty_tree() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
-        assert_eq!(btree.iter().unwrap().count(), 0);
+        assert_eq!(bptree.iter().unwrap().count(), 0);
     }
 
     #[test]
     fn test_iter_range_empty() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
-        btree.insert(10, 100).unwrap();
-        assert_eq!(btree.iter_range(0..5).unwrap().count(), 0);
-        assert_eq!(btree.iter_range(15..20).unwrap().count(), 0);
+        bptree.insert(10, 100).unwrap();
+        assert_eq!(bptree.iter_range(0..5).unwrap().count(), 0);
+        assert_eq!(bptree.iter_range(15..20).unwrap().count(), 0);
     }
 
     #[test]
@@ -862,17 +862,17 @@ mod tests {
         let mut storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
 
         {
-            let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
-            btree.insert(1, 10).unwrap();
-            storage = btree.storage; // Get storage back
+            let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
+            bptree.insert(1, 10).unwrap();
+            storage = bptree.storage; // Get storage back
         }
 
         // Corrupt block 1 (root) by writing zeros
         storage.write_block(1, &vec![0u8; 4096]).unwrap();
 
-        let btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
         // Validation should fail now
-        let res = btree.validate();
+        let res = bptree.validate();
         assert!(
             res.is_err(),
             "Validation should fail but returned {:?}",
@@ -884,27 +884,27 @@ mod tests {
     fn test_validate_empty_tree() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
-        btree.validate().unwrap();
+        let bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
+        bptree.validate().unwrap();
     }
 
     #[test]
     fn test_validate() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 512).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
-        btree.validate().unwrap();
+        bptree.validate().unwrap();
 
         for i in 0..100 {
-            btree.insert(i, i * 10).unwrap();
-            btree.validate().unwrap();
+            bptree.insert(i, i * 10).unwrap();
+            bptree.validate().unwrap();
         }
 
         for i in 0..100 {
-            let res = btree.delete(&i).unwrap();
+            let res = bptree.delete(&i).unwrap();
             assert!(res.is_some(), "Key {} should exist", i);
-            btree.validate().unwrap();
+            bptree.validate().unwrap();
         }
     }
 
@@ -912,14 +912,14 @@ mod tests {
     fn test_iter_basic() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
         for i in 0..100 {
-            btree.insert(i, i * 10).unwrap();
+            bptree.insert(i, i * 10).unwrap();
         }
 
         let mut count = 0;
-        for (idx, result) in btree.iter().unwrap().enumerate() {
+        for (idx, result) in bptree.iter().unwrap().enumerate() {
             let (key, value) = result.unwrap();
             assert_eq!(key, idx as u32);
             assert_eq!(value, (idx * 10) as u32);
@@ -932,13 +932,13 @@ mod tests {
     fn test_iter_range() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 512).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
         for i in 0..50 {
-            btree.insert(i, i * 10).unwrap();
+            bptree.insert(i, i * 10).unwrap();
         }
 
-        let range_vec: Vec<_> = btree
+        let range_vec: Vec<_> = bptree
             .iter_range(10..20)
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
@@ -947,7 +947,7 @@ mod tests {
         assert_eq!(range_vec[0].0, 10);
         assert_eq!(range_vec[9].0, 19);
 
-        let full_range: Vec<_> = btree
+        let full_range: Vec<_> = bptree
             .iter_range(..)
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
@@ -959,80 +959,80 @@ mod tests {
     fn test_len_and_is_empty() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
-        assert!(btree.is_empty());
-        assert_eq!(btree.len(), 0);
+        assert!(bptree.is_empty());
+        assert_eq!(bptree.len(), 0);
 
-        btree.insert(1, 10).unwrap();
-        assert!(!btree.is_empty());
-        assert_eq!(btree.len(), 1);
+        bptree.insert(1, 10).unwrap();
+        assert!(!bptree.is_empty());
+        assert_eq!(bptree.len(), 1);
 
-        btree.insert(2, 20).unwrap();
-        assert_eq!(btree.len(), 2);
+        bptree.insert(2, 20).unwrap();
+        assert_eq!(bptree.len(), 2);
 
-        btree.delete(&1).unwrap();
-        assert_eq!(btree.len(), 1);
+        bptree.delete(&1).unwrap();
+        assert_eq!(bptree.len(), 1);
 
-        btree.delete(&2).unwrap();
-        assert!(btree.is_empty());
-        assert_eq!(btree.len(), 0);
+        bptree.delete(&2).unwrap();
+        assert!(bptree.is_empty());
+        assert_eq!(bptree.len(), 0);
     }
 
     #[test]
     fn test_update_and_upsert() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
-        assert_eq!(btree.update(1, 10).unwrap(), None);
-        assert_eq!(btree.len(), 0);
+        assert_eq!(bptree.update(1, 10).unwrap(), None);
+        assert_eq!(bptree.len(), 0);
 
-        assert_eq!(btree.upsert(1, 10).unwrap(), None);
-        assert_eq!(btree.len(), 1);
+        assert_eq!(bptree.upsert(1, 10).unwrap(), None);
+        assert_eq!(bptree.len(), 1);
 
-        assert_eq!(btree.update(1, 11).unwrap(), Some(10));
-        assert_eq!(btree.get(&1).unwrap(), Some(11));
-        assert_eq!(btree.len(), 1);
+        assert_eq!(bptree.update(1, 11).unwrap(), Some(10));
+        assert_eq!(bptree.get(&1).unwrap(), Some(11));
+        assert_eq!(bptree.len(), 1);
 
-        assert_eq!(btree.upsert(1, 12).unwrap(), Some(11));
-        assert_eq!(btree.get(&1).unwrap(), Some(12));
-        assert_eq!(btree.len(), 1);
+        assert_eq!(bptree.upsert(1, 12).unwrap(), Some(11));
+        assert_eq!(bptree.get(&1).unwrap(), Some(12));
+        assert_eq!(bptree.len(), 1);
     }
 
     #[test]
     fn test_clear() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
 
         for i in 0..10 {
-            btree.insert(i, i * 10).unwrap();
+            bptree.insert(i, i * 10).unwrap();
         }
-        assert_eq!(btree.len(), 10);
+        assert_eq!(bptree.len(), 10);
 
-        btree.clear().unwrap();
-        assert!(btree.is_empty());
-        assert_eq!(btree.len(), 0);
-        assert!(btree.root_id.is_none());
+        bptree.clear().unwrap();
+        assert!(bptree.is_empty());
+        assert_eq!(bptree.len(), 0);
+        assert!(bptree.root_id.is_none());
     }
 
     #[test]
     fn test_range_query() {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
-        let mut btree: BTree<u32, String, _> = BTree::new(storage).unwrap();
+        let mut bptree: BPTree<u32, String, _> = BPTree::new(storage).unwrap();
 
         for i in 0..10 {
-            btree.insert(i, format!("val{}", i)).unwrap();
+            bptree.insert(i, format!("val{}", i)).unwrap();
         }
 
-        let range = btree.range(3..7).unwrap();
+        let range = bptree.range(3..7).unwrap();
         assert_eq!(range.len(), 4);
         assert_eq!(range[0].0, 3);
         assert_eq!(range[3].0, 6);
 
-        let full_range = btree.range(..).unwrap();
+        let full_range = bptree.range(..).unwrap();
         assert_eq!(full_range.len(), 10);
     }
 }

@@ -22,7 +22,7 @@ A high-performance, configurable B-tree implementation for persistent key-value 
 ```
 src/
 ├── lib.rs              # Main library interface and exports
-├── btree/             # B-tree implementation
+├── bptree/             # B-tree implementation
 │   ├── mod.rs         # Module exports
 │   ├── node.rs        # Unified node structure (internal/leaf)
 │   ├── tree.rs        # Core B-tree operations and persistence
@@ -40,35 +40,35 @@ src/
 ## Quick Start
 
 ```rust
-use btree::{BTree, FileBlockStorage};
+use bptree::{BPTree, FileBlockStorage};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create storage with 4KB blocks
-    let storage = FileBlockStorage::new("./btree_data", 4096)?;
+    let storage = FileBlockStorage::new("./bptree_data", 4096)?;
     
     // Create B-tree
-    let mut btree: BTree<String, String, _> = BTree::new(storage)?;
+    let mut bptree: BPTree<String, String, _> = BPTree::new(storage)?;
     
     // Insert some data
-    btree.insert("hello".to_string(), "world".to_string())?;
-    btree.insert("rust".to_string(), "awesome".to_string())?;
+    bptree.insert("hello".to_string(), "world".to_string())?;
+    bptree.insert("rust".to_string(), "awesome".to_string())?;
     
     // Check size
-    println!("Entries: {}", btree.len()); // 2
+    println!("Entries: {}", bptree.len()); // 2
     
     // Retrieve data
-    if let Some(value) = btree.get(&"hello".to_string())? {
+    if let Some(value) = bptree.get(&"hello".to_string())? {
         println!("hello: {}", value);
     }
     
     // Range iterator
-    for result in btree.iter_range("h".to_string().."z".to_string())? {
+    for result in bptree.iter_range("h".to_string().."z".to_string())? {
         let (key, value) = result?;
         println!("{}: {}", key, value);
     }
     
     // Validate integrity
-    btree.validate()?;
+    bptree.validate()?;
     
     Ok(())
 }
@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Custom Storage Backend
 
 ```rust
-use btree::{BTree, BlockStorage, BlockId};
+use bptree::{BPTree, BlockStorage, BlockId};
 use std::io::Result;
 
 struct CustomStorage {
@@ -111,7 +111,7 @@ impl BlockStorage for CustomStorage {
 }
 
 // B-tree with custom storage
-let mut tree: BTree<String, i32, CustomStorage> = BTree::new(custom_storage)?;
+let mut tree: BPTree<String, i32, CustomStorage> = BPTree::new(custom_storage)?;
 ```
 
 ### Custom Data Types
@@ -131,7 +131,7 @@ struct UserValue {
     email: String,
 }
 
-let mut tree: BTree<UserKey, UserValue, FileBlockStorage> = BTree::new(storage)?;
+let mut tree: BPTree<UserKey, UserValue, FileBlockStorage> = BPTree::new(storage)?;
 
 // Insert complex data
 let key = UserKey { user_id: 123, timestamp: 1640995200 };
@@ -148,23 +148,23 @@ tree.insert(key, value)?;
 ### Insertion
 ```rust
 // Single insert
-btree.insert("key1".to_string(), "value1".to_string())?;
+bptree.insert("key1".to_string(), "value1".to_string())?;
 
 // Batch inserts (loop through data)
 for (k, v) in data {
-    btree.insert(k, v)?;
+    bptree.insert(k, v)?;
 }
 ```
 
 ### Search
 ```rust
 // Exact match
-if let Some(value) = btree.get(&"key1".to_string())? {
+if let Some(value) = bptree.get(&"key1".to_string())? {
     println!("Found: {}", value);
 }
 
 // Range query
-for (key, value) in btree.range("a".to_string().."m".to_string())? {
+for (key, value) in bptree.range("a".to_string().."m".to_string())? {
     println!("{}: {}", key, value);
 }
 ```
@@ -172,7 +172,7 @@ for (key, value) in btree.range("a".to_string().."m".to_string())? {
 ### Deletion
 ```rust
 // Remove single key, returns old value
-if let Some(old_val) = btree.delete(&"key1".to_string())? {
+if let Some(old_val) = bptree.delete(&"key1".to_string())? {
     println!("Removed: {}", old_val);
 }
 ```
@@ -196,7 +196,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-btree = { path = "/path/to/btree" }
+bptree = { path = "/path/to/bptree" }
 ```
 
 ## Error Handling
@@ -204,13 +204,13 @@ btree = { path = "/path/to/btree" }
 The library provides comprehensive error types:
 
 ```rust
-use btree::BTreeError;
+use bptree::BPTreeError;
 
-match btree.insert(key, value) {
+match bptree.insert(key, value) {
     Ok(_) => println!("Insert successful"),
-    Err(BTreeError::Storage(e)) => eprintln!("Storage error: {}", e),
-    Err(BTreeError::NodeCorrupted) => eprintln!("Tree corruption detected"),
-    Err(BTreeError::ValidationFailed(msg)) => eprintln!("Validation failed: {}", msg),
+    Err(BPTreeError::Storage(e)) => eprintln!("Storage error: {}", e),
+    Err(BPTreeError::NodeCorrupted) => eprintln!("Tree corruption detected"),
+    Err(BPTreeError::ValidationFailed(msg)) => eprintln!("Validation failed: {}", msg),
     _ => eprintln!("Other B-tree error"),
 }
 ```

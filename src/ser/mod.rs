@@ -1,4 +1,4 @@
-use crate::btree::node::UniversalNode;
+use crate::bptree::node::UniversalNode;
 use crate::storage::StorageError;
 
 /// Serialization utilities for block storage
@@ -63,7 +63,7 @@ impl BlockSerializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::btree::node::UniversalNode;
+    use crate::bptree::node::UniversalNode;
 
     #[test]
     fn test_serialize_deserialize_leaf() {

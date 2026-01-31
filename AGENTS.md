@@ -9,7 +9,7 @@ This document provides a comprehensive analysis of the Rust persistent B+ tree i
 ```
 src/
 ├── lib.rs              # Main library interface and exports
-├── btree/             # B+ tree implementation
+├── bptree/             # B+ tree implementation
 │   ├── mod.rs         # Module exports
 │   ├── node.rs        # Unified node structure (internal/leaf)
 │   ├── tree.rs        # Core B+ tree operations and persistence
@@ -29,7 +29,7 @@ src/
 - **storage_trait.rs**: Defines `BlockStorage` trait with generic block size support
 - **file.rs**: Default implementation using flat directory structure (`block_0`, `block_1`, etc.)
 
-#### 2. Node Structure (`btree/node.rs`)
+#### 2. Node Structure (`bptree/node.rs`)
 - **Unified UniversalNode**: Single struct that represents both internal and leaf nodes
 - **Implicit Type Detection**: Node type determined by presence of child pointers vs values
 - **Serde Integration**: Full serialization support for key/value types
@@ -38,12 +38,12 @@ src/
 - **BlockSerializer**: Efficient, block-aware serialization with padding
 - **Type Safety**: Generic serialization with proper error handling
 
-#### 4. B+ Tree Implementation (`btree/tree.rs`)
+#### 4. B+ Tree Implementation (`bptree/tree.rs`)
 - **Core Operations**: Insert, get, delete, range scan
 - **Persistence Logic**: Root management, metadata handling, atomic writes
 - **Split/Merge Algorithms**: Proper B+ tree balancing logic
 
-#### 5. Error Handling (`btree/error.rs`)
+#### 5. Error Handling (`bptree/error.rs`)
 - **Comprehensive Error Types**: StorageError wrapper with specific B+ tree errors
 - **Error Propagation**: Full Result type integration
 
@@ -127,8 +127,8 @@ pub struct UniversalNode<K, V> {
 ### Development Environment
 ```bash
 # Clone and build
-cargo clone /path/to/btree
-cd btree
+cargo clone /path/to/bptree
+cd bptree
 cargo build
 
 # Run tests
@@ -171,11 +171,11 @@ criterion = "0.5"
 
 ### Basic Usage
 ```rust
-use btree::{BTree, FileBlockStorage};
+use bptree::{BPTree, FileBlockStorage};
 
 // Create storage with 4KB blocks
 let storage = FileBlockStorage::new("./data", 4096)?;
-let mut tree: BTree<String, String, _> = BTree::new(storage)?;
+let mut tree: BPTree<String, String, _> = BPTree::new(storage)?;
 
 // Insert data
 tree.insert("key1".to_string(), "value1".to_string())?;
@@ -207,7 +207,7 @@ struct CustomKey {
     // Custom key fields...
 }
 
-let mut tree: BTree<CustomKey, CustomValue, CustomStorage> = BTree::new(custom_storage)?;
+let mut tree: BPTree<CustomKey, CustomValue, CustomStorage> = BPTree::new(custom_storage)?;
 ```
 
 ## Testing Strategy

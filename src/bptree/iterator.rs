@@ -1,34 +1,34 @@
-use crate::btree::node::UniversalNode;
-use crate::btree::tree::BTree;
+use crate::bptree::node::UniversalNode;
+use crate::bptree::tree::BPTree;
 use crate::storage::{BlockId, BlockStorage, StorageError};
 use serde::{Deserialize, Serialize};
 use std::ops::{Bound, RangeBounds};
 
-pub struct BTreeIter<'a, K, V, S>
+pub struct BPTreeIter<'a, K, V, S>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
     S: BlockStorage<Error = StorageError>,
 {
-    btree: &'a BTree<K, V, S>,
+    bptree: &'a BPTree<K, V, S>,
     current_leaf_id: Option<BlockId>,
     current_index: usize,
     current_node: Option<UniversalNode<K, V>>,
 }
 
-impl<'a, K, V, S> BTreeIter<'a, K, V, S>
+impl<'a, K, V, S> BPTreeIter<'a, K, V, S>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
     S: BlockStorage<Error = StorageError>,
 {
-    pub fn new(btree: &'a BTree<K, V, S>) -> Result<Self, StorageError> {
-        let mut current_leaf_id = btree.root_id;
+    pub fn new(bptree: &'a BPTree<K, V, S>) -> Result<Self, StorageError> {
+        let mut current_leaf_id = bptree.root_id;
         let mut current_node = None;
 
         if let Some(mut id) = current_leaf_id {
             loop {
-                let node = btree.load_node(id)?;
+                let node = bptree.load_node(id)?;
                 if node.is_leaf() {
                     current_leaf_id = Some(id);
                     current_node = Some(node);
@@ -43,7 +43,7 @@ where
         }
 
         Ok(Self {
-            btree,
+            bptree,
             current_leaf_id,
             current_index: 0,
             current_node,
@@ -51,7 +51,7 @@ where
     }
 }
 
-impl<'a, K, V, S> Iterator for BTreeIter<'a, K, V, S>
+impl<'a, K, V, S> Iterator for BPTreeIter<'a, K, V, S>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
@@ -70,7 +70,7 @@ where
         } else {
             // Move to next leaf
             let next_leaf_id = node.next_leaf?;
-            match self.btree.load_node(next_leaf_id) {
+            match self.bptree.load_node(next_leaf_id) {
                 Ok(next_node) => {
                     self.current_leaf_id = Some(next_leaf_id);
                     if next_node.keys.is_empty() {
@@ -89,14 +89,14 @@ where
     }
 }
 
-pub struct BTreeRangeIter<'a, K, V, S, R>
+pub struct BPTreeRangeIter<'a, K, V, S, R>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
     S: BlockStorage<Error = StorageError>,
     R: RangeBounds<K>,
 {
-    btree: &'a BTree<K, V, S>,
+    bptree: &'a BPTree<K, V, S>,
     range: R,
     current_leaf_id: Option<BlockId>,
     current_index: usize,
@@ -104,19 +104,19 @@ where
     finished: bool,
 }
 
-impl<'a, K, V, S, R> BTreeRangeIter<'a, K, V, S, R>
+impl<'a, K, V, S, R> BPTreeRangeIter<'a, K, V, S, R>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
     S: BlockStorage<Error = StorageError>,
     R: RangeBounds<K>,
 {
-    pub fn new(btree: &'a BTree<K, V, S>, range: R) -> Result<Self, StorageError> {
-        let root_id = match btree.root_id {
+    pub fn new(bptree: &'a BPTree<K, V, S>, range: R) -> Result<Self, StorageError> {
+        let root_id = match bptree.root_id {
             Some(id) => id,
             None => {
                 return Ok(Self {
-                    btree,
+                    bptree,
                     range,
                     current_leaf_id: None,
                     current_index: 0,
@@ -129,7 +129,7 @@ where
         // Find the first leaf that could contain the start of the range
         let mut current_id = root_id;
         loop {
-            let node = btree.load_node(current_id)?;
+            let node = bptree.load_node(current_id)?;
             if node.is_leaf() {
                 break;
             }
@@ -147,7 +147,7 @@ where
 
             if node.child_ids.is_empty() {
                 return Ok(Self {
-                    btree,
+                    bptree,
                     range,
                     current_leaf_id: None,
                     current_index: 0,
@@ -158,7 +158,7 @@ where
             current_id = node.child_ids[idx];
         }
 
-        let node = btree.load_node(current_id)?;
+        let node = bptree.load_node(current_id)?;
 
         // Find start index
         let current_index = if let Bound::Included(start) = range.start_bound() {
@@ -173,7 +173,7 @@ where
         };
 
         Ok(Self {
-            btree,
+            bptree,
             range,
             current_leaf_id: Some(current_id),
             current_index,
@@ -183,7 +183,7 @@ where
     }
 }
 
-impl<'a, K, V, S, R> Iterator for BTreeRangeIter<'a, K, V, S, R>
+impl<'a, K, V, S, R> Iterator for BPTreeRangeIter<'a, K, V, S, R>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
     V: Clone + Serialize + for<'de> Deserialize<'de>,
@@ -232,7 +232,7 @@ where
                 }
             };
 
-            match self.btree.load_node(next_leaf_id) {
+            match self.bptree.load_node(next_leaf_id) {
                 Ok(next_node) => {
                     self.current_leaf_id = Some(next_leaf_id);
                     self.current_index = 0;

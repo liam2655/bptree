@@ -12,7 +12,7 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::{thread_rng, Rng};
 
-use btree::{BTree, BlockId, BlockStorage, StorageError};
+use bptree::{BPTree, BlockId, BlockStorage, StorageError};
 
 /// Simulated storage backend with failure injection
 #[derive(Clone)]
@@ -121,13 +121,13 @@ fn bench_insertion(c: &mut Criterion) {
     c.bench_function("insertion_1000", |b| {
         b.iter(|| {
             let storage = SimulatedStorage::new(0.0, Duration::from_nanos(1));
-            let mut btree: BTree<u64, String, _> =
-                BTree::new(storage).expect("Failed to create B-tree");
+            let mut bptree: BPTree<u64, String, _> =
+                BPTree::new(storage).expect("Failed to create B-tree");
 
             for i in 0..1000 {
                 let key = black_box(i);
                 let value = format!("value-{}", key);
-                btree.insert(key, value).expect("Insert failed");
+                bptree.insert(key, value).expect("Insert failed");
             }
         })
     });
@@ -136,19 +136,19 @@ fn bench_insertion(c: &mut Criterion) {
 /// Lookup benchmark
 fn bench_lookup(c: &mut Criterion) {
     let storage = SimulatedStorage::new(0.0, Duration::from_nanos(1));
-    let mut btree: BTree<u64, String, _> = BTree::new(storage).expect("Failed to create B-tree");
+    let mut bptree: BPTree<u64, String, _> = BPTree::new(storage).expect("Failed to create B-tree");
 
     // Pre-populate with data
     for i in 0..1000 {
         let value = format!("value-{}", i);
-        btree.insert(i, value).expect("Insert failed");
+        bptree.insert(i, value).expect("Insert failed");
     }
 
     c.bench_function("lookup_1000", |b| {
         b.iter(|| {
             for i in 0..1000 {
                 let key = black_box(i % 1000);
-                btree.get(&key).expect("Lookup failed");
+                bptree.get(&key).expect("Lookup failed");
             }
         })
     });
@@ -159,8 +159,8 @@ fn bench_mixed_operations(c: &mut Criterion) {
     c.bench_function("mixed_operations", |b| {
         b.iter(|| {
             let storage = SimulatedStorage::new(0.0, Duration::from_nanos(1));
-            let mut btree: BTree<u32, String, _> =
-                BTree::new(storage).expect("Failed to create B-tree");
+            let mut bptree: BPTree<u32, String, _> =
+                BPTree::new(storage).expect("Failed to create B-tree");
             let mut rng = thread_rng();
 
             for i in 0..1000 {
@@ -169,9 +169,9 @@ fn bench_mixed_operations(c: &mut Criterion) {
 
                 // 70% insert, 30% lookup
                 if rng.gen_range(0.0..1.0) < 0.7 {
-                    btree.insert(key, value).expect("Insert failed");
+                    bptree.insert(key, value).expect("Insert failed");
                 } else {
-                    btree.get(&key).expect("Lookup failed");
+                    bptree.get(&key).expect("Lookup failed");
                 }
             }
         })
@@ -189,7 +189,7 @@ fn bench_with_failures(c: &mut Criterion) {
             |b, &failure_rate| {
                 b.iter(|| {
                     let storage = SimulatedStorage::new(failure_rate, Duration::from_nanos(1));
-                    if let Ok(mut btree) = BTree::<u32, String, _>::new(storage) {
+                    if let Ok(mut bptree) = BPTree::<u32, String, _>::new(storage) {
                         let mut rng = thread_rng();
                         let mut success_count = 0;
                         let mut total_count = 0;
@@ -199,7 +199,7 @@ fn bench_with_failures(c: &mut Criterion) {
                             let value = format!("value-{}", i);
 
                             total_count += 1;
-                            if btree.insert(key, value).is_ok() {
+                            if bptree.insert(key, value).is_ok() {
                                 success_count += 1;
                             }
                         }
@@ -223,14 +223,14 @@ fn bench_stress_test(c: &mut Criterion) {
     c.bench_function("stress_test_10000", |b| {
         b.iter(|| {
             let storage = SimulatedStorage::new(0.0, Duration::from_nanos(1));
-            let mut btree: BTree<u64, String, _> =
-                BTree::new(storage).expect("Failed to create B-tree");
+            let mut bptree: BPTree<u64, String, _> =
+                BPTree::new(storage).expect("Failed to create B-tree");
 
             // Insert many items
             for i in 0..10000 {
                 let key = black_box(i);
                 let value = format!("value-{}", key);
-                if btree.insert(key, value).is_err() {
+                if bptree.insert(key, value).is_err() {
                     break; // Stop on first error to avoid panicking
                 }
             }
