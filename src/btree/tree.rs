@@ -1,4 +1,4 @@
-use crate::btree::error::DeleteResult;
+use crate::btree::error::{BTreeError, DeleteResult};
 use crate::btree::node::UniversalNode;
 use crate::ser::BlockSerializer;
 use crate::storage::{BlockId, BlockStorage, StorageError};
@@ -11,7 +11,7 @@ struct BTreeMetadata {
     root_id: Option<BlockId>,
     block_size: usize,
     max_keys_per_node: usize,
-    next_key_id: u64,
+    entry_count: u64,
 }
 
 /// Persistent B-tree implementation with pluggable storage
@@ -21,10 +21,11 @@ where
     V: Clone + Serialize + for<'de> Deserialize<'de>,
     S: BlockStorage<Error = StorageError>,
 {
-    storage: S,
-    metadata_id: BlockId,
-    root_id: Option<BlockId>,
-    max_keys_per_node: usize,
+    pub(crate) storage: S,
+    pub(crate) metadata_id: BlockId,
+    pub(crate) root_id: Option<BlockId>,
+    pub(crate) max_keys_per_node: usize,
+    pub(crate) entry_count: u64,
     _phantom: PhantomData<(K, V)>,
 }
 
@@ -43,6 +44,7 @@ where
             metadata_id: 0,
             root_id: None,
             max_keys_per_node,
+            entry_count: 0,
             _phantom: PhantomData,
         };
 
@@ -62,6 +64,7 @@ where
                 if let Ok(metadata) = bincode::deserialize::<BTreeMetadata>(&data) {
                     self.root_id = metadata.root_id;
                     self.max_keys_per_node = metadata.max_keys_per_node;
+                    self.entry_count = metadata.entry_count;
                     Ok(())
                 } else {
                     self.initialize_metadata()
@@ -85,7 +88,7 @@ where
             root_id: None,
             block_size: self.storage.block_size(),
             max_keys_per_node: self.max_keys_per_node,
-            next_key_id: 0,
+            entry_count: 0,
         };
 
         let metadata_data = bincode::serialize(&metadata)?;
@@ -95,6 +98,7 @@ where
         self.storage.sync()?;
 
         self.root_id = None;
+        self.entry_count = 0;
         Ok(())
     }
 
@@ -114,7 +118,7 @@ where
         Ok(())
     }
 
-    fn load_node(&self, node_id: BlockId) -> Result<UniversalNode<K, V>, StorageError> {
+    pub(crate) fn load_node(&self, node_id: BlockId) -> Result<UniversalNode<K, V>, StorageError> {
         let data = self.storage.read_block(node_id)?;
         let node: UniversalNode<K, V> = bincode::deserialize(&data)?;
         Ok(node)
@@ -125,7 +129,7 @@ where
             root_id: self.root_id,
             block_size: self.storage.block_size(),
             max_keys_per_node: self.max_keys_per_node,
-            next_key_id: 0,
+            entry_count: self.entry_count,
         };
 
         let metadata_data = bincode::serialize(&metadata)?;
@@ -141,38 +145,55 @@ where
         node_id: BlockId,
         key: K,
         value: V,
-    ) -> Result<Option<(K, BlockId)>, StorageError> {
+    ) -> Result<(Option<V>, Option<(K, BlockId)>), StorageError> {
         let mut node = self.load_node(node_id)?;
 
         if node.is_leaf() {
+            let old_value = node.get(&key).cloned();
             node.insert_leaf(key, value)?;
-            self.save_node(node_id, &node)?;
-            Ok(None)
+
+            if node.keys.len() > self.max_keys_per_node {
+                let (split_key, right_node) = node.split()?;
+                let right_id = self.allocate_node()?;
+                node.next_leaf = Some(right_id);
+                self.save_node(right_id, &right_node)?;
+                self.save_node(node_id, &node)?;
+                Ok((old_value, Some((split_key, right_id))))
+            } else {
+                self.save_node(node_id, &node)?;
+                Ok((old_value, None))
+            }
         } else {
             let child_idx = node.find_key_index(&key);
             let child_id = node.child_ids[child_idx];
 
-            if let Some((split_key, new_right_id)) = self.insert_recursive(child_id, key, value)? {
-                if node.keys.len() >= self.max_keys_per_node {
-                    // Split internal node
+            let (old_value, split_result) = self.insert_recursive(child_id, key, value)?;
+
+            if let Some((split_key, new_right_id)) = split_result {
+                node.insert_internal(split_key, child_id, new_right_id)?;
+
+                if node.keys.len() > self.max_keys_per_node {
                     let (promoted_key, right_node) = node.split()?;
-                    let new_right_id = self.allocate_node()?;
-                    self.save_node(new_right_id, &right_node)?;
+                    let right_block_id = self.allocate_node()?;
+                    self.save_node(right_block_id, &right_node)?;
                     self.save_node(node_id, &node)?;
-                    Ok(Some((promoted_key, new_right_id)))
+                    Ok((old_value, Some((promoted_key, right_block_id))))
                 } else {
-                    node.insert_internal(split_key, child_id, new_right_id)?;
                     self.save_node(node_id, &node)?;
-                    Ok(None)
+                    Ok((old_value, None))
                 }
             } else {
-                self.save_node(node_id, &node)?;
-                Ok(None)
+                // Node itself didn't change, but child might have been saved
+                Ok((old_value, None))
             }
         }
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<Option<V>, StorageError> {
+        self.upsert(key, value)
+    }
+
+    pub fn upsert(&mut self, key: K, value: V) -> Result<Option<V>, StorageError> {
         if self.root_id.is_none() {
             let mut root = UniversalNode::new_leaf();
             root.insert_leaf(key, value)?;
@@ -180,24 +201,99 @@ where
             let root_id = self.allocate_node()?;
             self.save_node(root_id, &root)?;
             self.root_id = Some(root_id);
+            self.entry_count = 1;
             self.save_metadata()?;
             return Ok(None);
         }
 
         let root_id = self.root_id.unwrap();
-        let result = self.insert_recursive(root_id, key, value)?;
+        let (old_value, split_result) = self.insert_recursive(root_id, key, value)?;
 
-        if let Some((split_key, new_right_id)) = result {
+        if old_value.is_none() {
+            self.entry_count += 1;
+        }
+
+        if let Some((split_key, new_right_id)) = split_result {
             let new_root_id = self.allocate_node()?;
             let mut new_root = UniversalNode::new_internal();
             new_root.insert_internal(split_key, root_id, new_right_id)?;
             self.save_node(new_root_id, &new_root)?;
 
             self.root_id = Some(new_root_id);
-            self.save_metadata()?;
         }
 
-        Ok(None)
+        self.save_metadata()?;
+        Ok(old_value)
+    }
+
+    pub fn update(&mut self, key: K, value: V) -> Result<Option<V>, StorageError> {
+        if self.root_id.is_none() {
+            return Ok(None);
+        }
+
+        // Check if key exists first to avoid unnecessary inserts
+        if self.get(&key)?.is_none() {
+            return Ok(None);
+        }
+
+        let root_id = self.root_id.unwrap();
+        let (old_value, split_result) = self.insert_recursive(root_id, key, value)?;
+
+        // If split happened (should be rare on update if types are same size, but possible with generic types)
+        if let Some((split_key, new_right_id)) = split_result {
+            let new_root_id = self.allocate_node()?;
+            let mut new_root = UniversalNode::new_internal();
+            new_root.insert_internal(split_key, root_id, new_right_id)?;
+            self.save_node(new_root_id, &new_root)?;
+
+            self.root_id = Some(new_root_id);
+        }
+
+        self.save_metadata()?;
+        Ok(old_value)
+    }
+
+    pub fn len(&self) -> u64 {
+        self.entry_count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entry_count == 0
+    }
+
+    pub fn clear(&mut self) -> Result<(), StorageError> {
+        if let Some(root_id) = self.root_id {
+            self.deallocate_recursive(root_id)?;
+            self.root_id = None;
+            self.entry_count = 0;
+            self.save_metadata()?;
+        }
+        Ok(())
+    }
+
+    fn deallocate_recursive(&mut self, node_id: BlockId) -> Result<(), StorageError> {
+        let node = self.load_node(node_id)?;
+        if !node.is_leaf() {
+            for child_id in node.child_ids {
+                self.deallocate_recursive(child_id)?;
+            }
+        }
+        self.deallocate_block(node_id)?;
+        Ok(())
+    }
+
+    pub fn iter(&self) -> Result<crate::btree::iterator::BTreeIter<'_, K, V, S>, StorageError> {
+        crate::btree::iterator::BTreeIter::new(self)
+    }
+
+    pub fn iter_range<R>(
+        &self,
+        range: R,
+    ) -> Result<crate::btree::iterator::BTreeRangeIter<'_, K, V, S, R>, StorageError>
+    where
+        R: std::ops::RangeBounds<K>,
+    {
+        crate::btree::iterator::BTreeRangeIter::new(self, range)
     }
 
     pub fn get(&self, key: &K) -> Result<Option<V>, StorageError> {
@@ -275,7 +371,7 @@ where
 
     /// Calculate minimum keys per node
     fn min_keys(&self) -> usize {
-        (self.max_keys_per_node + 1) / 2 - 1
+        self.max_keys_per_node.div_ceil(2) - 1
     }
 
     /// Check if a node is the root
@@ -289,6 +385,96 @@ where
     }
 
     /// Delete a key from the B+ tree
+    pub fn validate(&self) -> Result<(), BTreeError> {
+        let Some(root_id) = self.root_id else {
+            if self.entry_count != 0 {
+                return Err(BTreeError::ValidationFailed(
+                    "Root is None but entry_count is not 0".into(),
+                ));
+            }
+            return Ok(());
+        };
+
+        let mut leaf_depth = None;
+        let actual_count = self.validate_recursive(root_id, 0, &mut leaf_depth, None, None)?;
+
+        if actual_count != self.entry_count {
+            return Err(BTreeError::ValidationFailed(format!(
+                "entry_count mismatch: expected {}, actual {}",
+                self.entry_count, actual_count
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_recursive(
+        &self,
+        node_id: BlockId,
+        depth: usize,
+        leaf_depth: &mut Option<usize>,
+        min_key: Option<&K>,
+        max_key: Option<&K>,
+    ) -> Result<u64, BTreeError> {
+        let node = self.load_node(node_id).map_err(BTreeError::Storage)?;
+        node.validate().map_err(|_| BTreeError::NodeCorrupted)?;
+
+        // Check key range
+        for key in &node.keys {
+            if let Some(min) = min_key {
+                if key < min {
+                    return Err(BTreeError::ValidationFailed(
+                        "Key violates min bound".into(),
+                    ));
+                }
+            }
+            if let Some(max) = max_key {
+                if key >= max {
+                    return Err(BTreeError::ValidationFailed(
+                        "Key violates max bound".into(),
+                    ));
+                }
+            }
+        }
+
+        if node.is_leaf() {
+            if let Some(d) = *leaf_depth {
+                if d != depth {
+                    return Err(BTreeError::ValidationFailed(format!(
+                        "Leaf depth mismatch: expected {}, got {}",
+                        d, depth
+                    )));
+                }
+            } else {
+                *leaf_depth = Some(depth);
+            }
+            Ok(node.key_count as u64)
+        } else {
+            let mut total_count = 0;
+            for i in 0..node.child_ids.len() {
+                let child_min = if i == 0 {
+                    min_key
+                } else {
+                    Some(&node.keys[i - 1])
+                };
+                let child_max = if i == node.keys.len() {
+                    max_key
+                } else {
+                    Some(&node.keys[i])
+                };
+
+                total_count += self.validate_recursive(
+                    node.child_ids[i],
+                    depth + 1,
+                    leaf_depth,
+                    child_min,
+                    child_max,
+                )?;
+            }
+            Ok(total_count)
+        }
+    }
+
     pub fn delete(&mut self, key: &K) -> Result<Option<V>, StorageError> {
         let Some(root_id) = self.root_id else {
             return Ok(None);
@@ -296,18 +482,25 @@ where
 
         match self.delete_recursive(root_id, key, None)? {
             DeleteResult::KeyRemoved(value) => {
+                self.entry_count -= 1;
                 self.handle_root_underflow()?;
+                self.save_metadata()?;
                 Ok(Some(value))
             }
             DeleteResult::NoChange => Ok(None),
             DeleteResult::TreeEmpty => {
                 self.root_id = None;
+                self.entry_count = 0;
                 self.save_metadata()?;
                 Ok(None)
             }
             DeleteResult::Underflow { value, .. } => {
+                if value.is_some() {
+                    self.entry_count -= 1;
+                }
                 // Root should handle underflow specially
                 self.handle_root_underflow()?;
+                self.save_metadata()?;
                 match value {
                     Some(v) => Ok(Some(v)),
                     None => Ok(None),
@@ -641,6 +834,187 @@ mod tests {
 
         let root = btree.load_node(btree.root_id.unwrap()).unwrap();
         assert!(root.is_leaf());
+    }
+
+    #[test]
+    fn test_iter_empty_tree() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        assert_eq!(btree.iter().unwrap().count(), 0);
+    }
+
+    #[test]
+    fn test_iter_range_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        btree.insert(10, 100).unwrap();
+        assert_eq!(btree.iter_range(0..5).unwrap().count(), 0);
+        assert_eq!(btree.iter_range(15..20).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn test_validate_corruption() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+
+        {
+            let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+            btree.insert(1, 10).unwrap();
+            storage = btree.storage; // Get storage back
+        }
+
+        // Corrupt block 1 (root) by writing zeros
+        storage.write_block(1, &vec![0u8; 4096]).unwrap();
+
+        let btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        // Validation should fail now
+        let res = btree.validate();
+        assert!(
+            res.is_err(),
+            "Validation should fail but returned {:?}",
+            res
+        );
+    }
+
+    #[test]
+    fn test_validate_empty_tree() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+        btree.validate().unwrap();
+    }
+
+    #[test]
+    fn test_validate() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 512).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        btree.validate().unwrap();
+
+        for i in 0..100 {
+            btree.insert(i, i * 10).unwrap();
+            btree.validate().unwrap();
+        }
+
+        for i in 0..100 {
+            let res = btree.delete(&i).unwrap();
+            assert!(res.is_some(), "Key {} should exist", i);
+            btree.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_iter_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        for i in 0..100 {
+            btree.insert(i, i * 10).unwrap();
+        }
+
+        let mut count = 0;
+        for (idx, result) in btree.iter().unwrap().enumerate() {
+            let (key, value) = result.unwrap();
+            assert_eq!(key, idx as u32);
+            assert_eq!(value, (idx * 10) as u32);
+            count += 1;
+        }
+        assert_eq!(count, 100);
+    }
+
+    #[test]
+    fn test_iter_range() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 512).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        for i in 0..50 {
+            btree.insert(i, i * 10).unwrap();
+        }
+
+        let range_vec: Vec<_> = btree
+            .iter_range(10..20)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(range_vec.len(), 10);
+        assert_eq!(range_vec[0].0, 10);
+        assert_eq!(range_vec[9].0, 19);
+
+        let full_range: Vec<_> = btree
+            .iter_range(..)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(full_range.len(), 50);
+    }
+
+    #[test]
+    fn test_len_and_is_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        assert!(btree.is_empty());
+        assert_eq!(btree.len(), 0);
+
+        btree.insert(1, 10).unwrap();
+        assert!(!btree.is_empty());
+        assert_eq!(btree.len(), 1);
+
+        btree.insert(2, 20).unwrap();
+        assert_eq!(btree.len(), 2);
+
+        btree.delete(&1).unwrap();
+        assert_eq!(btree.len(), 1);
+
+        btree.delete(&2).unwrap();
+        assert!(btree.is_empty());
+        assert_eq!(btree.len(), 0);
+    }
+
+    #[test]
+    fn test_update_and_upsert() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        assert_eq!(btree.update(1, 10).unwrap(), None);
+        assert_eq!(btree.len(), 0);
+
+        assert_eq!(btree.upsert(1, 10).unwrap(), None);
+        assert_eq!(btree.len(), 1);
+
+        assert_eq!(btree.update(1, 11).unwrap(), Some(10));
+        assert_eq!(btree.get(&1).unwrap(), Some(11));
+        assert_eq!(btree.len(), 1);
+
+        assert_eq!(btree.upsert(1, 12).unwrap(), Some(11));
+        assert_eq!(btree.get(&1).unwrap(), Some(12));
+        assert_eq!(btree.len(), 1);
+    }
+
+    #[test]
+    fn test_clear() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+        let mut btree: BTree<u32, u32, _> = BTree::new(storage).unwrap();
+
+        for i in 0..10 {
+            btree.insert(i, i * 10).unwrap();
+        }
+        assert_eq!(btree.len(), 10);
+
+        btree.clear().unwrap();
+        assert!(btree.is_empty());
+        assert_eq!(btree.len(), 0);
+        assert!(btree.root_id.is_none());
     }
 
     #[test]

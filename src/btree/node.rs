@@ -82,6 +82,13 @@ where
             return Err(StorageError::BlockCorrupted(0));
         }
 
+        // Check keys are sorted and unique
+        for i in 1..self.keys.len() {
+            if self.keys[i-1] >= self.keys[i] {
+                return Err(StorageError::BlockCorrupted(0));
+            }
+        }
+
         if self.is_internal() {
             // Internal node validation
             if self.child_ids.len() != self.key_count as usize + 1 {
@@ -106,9 +113,18 @@ where
         Ok(())
     }
 
-    /// Find the index where a key should be inserted
+    /// Find the index where a key should be inserted or which child to follow
     pub fn find_key_index(&self, key: &K) -> usize {
-        self.keys.binary_search(key).unwrap_or_else(|x| x)
+        match self.keys.binary_search(key) {
+            Ok(idx) => {
+                if self.is_internal() {
+                    idx + 1
+                } else {
+                    idx
+                }
+            }
+            Err(idx) => idx,
+        }
     }
 
     /// Get the child ID for a given key index (internal nodes only)
@@ -121,18 +137,27 @@ where
     }
 
     /// Insert a key-value pair into a leaf node
-    pub fn insert_leaf(&mut self, key: K, value: V) -> Result<(), StorageError> {
+    pub fn insert_leaf(&mut self, key: K, value: V) -> Result<bool, StorageError> {
         if !self.is_leaf() {
             return Err(StorageError::BlockCorrupted(0));
         }
 
-        let index = self.find_key_index(&key);
-        self.keys.insert(index, key);
-        self.values.insert(index, value);
-        self.key_count += 1;
-        self.is_dirty = true;
-
-        Ok(())
+        match self.keys.binary_search(&key) {
+            Ok(index) => {
+                // Key already exists, update value
+                self.values[index] = value;
+                self.is_dirty = true;
+                Ok(false) // Not a new insert
+            }
+            Err(index) => {
+                // Key does not exist, insert at found index
+                self.keys.insert(index, key);
+                self.values.insert(index, value);
+                self.key_count += 1;
+                self.is_dirty = true;
+                Ok(true) // New insert
+            }
+        }
     }
 
     /// Insert a key and split point into an internal node
@@ -288,23 +313,21 @@ where
         K: Clone,
     {
         if self.is_leaf() {
-            if let Some(key) = left_sibling.keys.pop() {
-                if let Some(value) = left_sibling.values.pop() {
-                    self.keys.insert(0, key.clone());
-                    self.values.insert(0, value);
-                    *parent_separator = key;
-                }
+            if let Some(key) = left_sibling.keys.pop()
+                && let Some(value) = left_sibling.values.pop() {
+                self.keys.insert(0, key.clone());
+                self.values.insert(0, value);
+                *parent_separator = key;
             }
         } else {
             // Internal node redistribution (B-tree style)
-            if let Some(key) = left_sibling.keys.pop() {
-                if let Some(child) = left_sibling.child_ids.pop() {
-                    // Parent separator comes down to this node
-                    self.keys.insert(0, parent_separator.clone());
-                    self.child_ids.insert(0, child);
-                    // Left sibling's key moves up to parent
-                    *parent_separator = key;
-                }
+            if let Some(key) = left_sibling.keys.pop()
+                && let Some(child) = left_sibling.child_ids.pop() {
+                // Parent separator comes down to this node
+                self.keys.insert(0, parent_separator.clone());
+                self.child_ids.insert(0, child);
+                // Left sibling's key moves up to parent
+                *parent_separator = key;
             }
         }
 
@@ -365,7 +388,7 @@ where
     }
 
     pub fn min_keys(&self, max_keys: usize) -> usize {
-        (max_keys + 1) / 2 - 1
+        max_keys.div_ceil(2) - 1
     }
 }
 

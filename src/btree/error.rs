@@ -10,6 +10,7 @@ pub enum BTreeError {
     Underflow,
     MergeFailed,
     SiblingNotFound,
+    ValidationFailed(String),
 }
 
 impl std::fmt::Display for BTreeError {
@@ -22,6 +23,7 @@ impl std::fmt::Display for BTreeError {
             BTreeError::Underflow => write!(f, "Node underflow"),
             BTreeError::MergeFailed => write!(f, "Cannot merge with siblings"),
             BTreeError::SiblingNotFound => write!(f, "No sibling available for rebalancing"),
+            BTreeError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
         }
     }
 }

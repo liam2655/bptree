@@ -10,6 +10,9 @@
 //! - File-based storage with flat directory structure
 //! - Serde support for key/value types
 //! - Implicit node type detection
+//! - Entry count tracking (`len()`, `is_empty()`)
+//! - Iterator support (`iter()`, `iter_range()`)
+//! - Integrity validation (`validate()`)
 //!
 //! # Example
 //!
@@ -29,10 +32,32 @@
 //! btree.insert("hello".to_string(), "world".to_string())?;
 //! btree.insert("foo".to_string(), "bar".to_string())?;
 //!
+//! // Check size
+//! assert_eq!(btree.len(), 2);
+//!
 //! // Retrieve data
 //! if let Some(value) = btree.get(&"hello".to_string())? {
 //!     println!("Value: {}", value);
 //! }
+//!
+//! // Iterate through all entries
+//! for result in btree.iter()? {
+//!     let (key, value) = result?;
+//!     println!("{}: {}", key, value);
+//! }
+//!
+//! // Range query
+//! for result in btree.iter_range("a".to_string().."m".to_string())? {
+//!     let (key, value) = result?;
+//!     println!("Range match: {}: {}", key, value);
+//! }
+//!
+//! // Delete data
+//! btree.delete(&"hello".to_string())?;
+//! assert_eq!(btree.len(), 1);
+//!
+//! // Validate integrity
+//! btree.validate()?;
 //!
 //! # Ok(())
 //! # }
@@ -42,6 +67,6 @@ pub mod btree;
 pub mod ser;
 pub mod storage;
 
-pub use btree::{BTree, BTreeError, UniversalNode};
+pub use btree::{BTree, BTreeError, UniversalNode, BTreeIter, BTreeRangeIter};
 pub use ser::BlockSerializer;
 pub use storage::{BlockId, BlockStorage, FileBlockStorage, StorageError};

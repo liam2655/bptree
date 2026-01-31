@@ -13,6 +13,9 @@ A high-performance, configurable B-tree implementation for persistent key-value 
 - 🧪 **Well Tested**: Comprehensive test suite with integration tests
 - 🔍 **Range Queries**: Efficient range scan capabilities
 - 🗑️ **Full Operations**: Complete CRUD operations with proper B-tree balancing
+- 🔢 **Entry Tracking**: O(1) access to total entry count
+- 🔄 **Iterators**: Sequential and range iterators with error handling
+- ✅ **Validation**: Built-in tree integrity and invariant checking
 
 ## Architecture
 
@@ -23,6 +26,7 @@ src/
 │   ├── mod.rs         # Module exports
 │   ├── node.rs        # Unified node structure (internal/leaf)
 │   ├── tree.rs        # Core B-tree operations and persistence
+│   ├── iterator.rs    # Iterator implementation
 │   └── error.rs       # B-tree specific error types
 ├── storage/            # Storage abstraction layer
 │   ├── mod.rs         # Module exports
@@ -49,15 +53,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     btree.insert("hello".to_string(), "world".to_string())?;
     btree.insert("rust".to_string(), "awesome".to_string())?;
     
+    // Check size
+    println!("Entries: {}", btree.len()); // 2
+    
     // Retrieve data
     if let Some(value) = btree.get(&"hello".to_string())? {
         println!("hello: {}", value);
     }
     
-    // Range query
-    for (key, value) in btree.range("h".to_string().."z".to_string())? {
+    // Range iterator
+    for result in btree.iter_range("h".to_string().."z".to_string())? {
+        let (key, value) = result?;
         println!("{}: {}", key, value);
     }
+    
+    // Validate integrity
+    btree.validate()?;
     
     Ok(())
 }
@@ -160,9 +171,9 @@ for (key, value) in btree.range("a".to_string().."m".to_string())? {
 
 ### Deletion
 ```rust
-// Remove single key
-if btree.delete(&"key1".to_string())? {
-    println!("Key removed successfully");
+// Remove single key, returns old value
+if let Some(old_val) = btree.delete(&"key1".to_string())? {
+    println!("Removed: {}", old_val);
 }
 ```
 
@@ -193,13 +204,14 @@ btree = { path = "/path/to/btree" }
 The library provides comprehensive error types:
 
 ```rust
-use btree::{BTreeError, FileBlockStorage};
+use btree::BTreeError;
 
 match btree.insert(key, value) {
-    Ok(()) => println!("Insert successful"),
+    Ok(_) => println!("Insert successful"),
     Err(BTreeError::Storage(e)) => eprintln!("Storage error: {}", e),
-    Err(BTreeError::Serialization(e)) => eprintln!("Serialization error: {}", e),
-    Err(BTreeError::NodeFull) => eprintln!("Node at capacity"),
+    Err(BTreeError::NodeCorrupted) => eprintln!("Tree corruption detected"),
+    Err(BTreeError::ValidationFailed(msg)) => eprintln!("Validation failed: {}", msg),
+    _ => eprintln!("Other B-tree error"),
 }
 ```
 
