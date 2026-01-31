@@ -9,8 +9,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rand::{thread_rng, Rng};
+use criterion::{criterion_group, criterion_main, Criterion};
+use rand::{rng, Rng};
+use std::hint::black_box;
 
 use bptree::{BPTree, BlockId, BlockStorage, StorageError};
 
@@ -44,8 +45,8 @@ impl SimulatedStorage {
     }
 
     fn inject_failure(&self) -> Result<(), SimulatedError> {
-        let mut rng = thread_rng();
-        if rng.r#gen::<f64>() < self.failure_rate {
+        let mut rng = rng();
+        if rng.random::<f64>() < self.failure_rate {
             Err(SimulatedError::OperationFailed)
         } else {
             Ok(())
@@ -161,14 +162,14 @@ fn bench_mixed_operations(c: &mut Criterion) {
             let storage = SimulatedStorage::new(0.0, Duration::from_nanos(1));
             let mut bptree: BPTree<u32, String, _> =
                 BPTree::new(storage).expect("Failed to create B-tree");
-            let mut rng = thread_rng();
+            let mut rng = rng();
 
             for i in 0..1000 {
-                let key = rng.gen_range(0..10000);
+                let key = rng.random_range(0..10000);
                 let value = format!("value-{}", i);
 
                 // 70% insert, 30% lookup
-                if rng.gen_range(0.0..1.0) < 0.7 {
+                if rng.random_range(0.0..1.0) < 0.7 {
                     bptree.insert(key, value).expect("Insert failed");
                 } else {
                     bptree.get(&key).expect("Lookup failed");
@@ -190,12 +191,12 @@ fn bench_with_failures(c: &mut Criterion) {
                 b.iter(|| {
                     let storage = SimulatedStorage::new(failure_rate, Duration::from_nanos(1));
                     if let Ok(mut bptree) = BPTree::<u32, String, _>::new(storage) {
-                        let mut rng = thread_rng();
+                        let mut rng = rng();
                         let mut success_count = 0;
                         let mut total_count = 0;
 
                         for i in 0..100 {
-                            let key = rng.gen_range(0..1000);
+                            let key = rng.random_range(0..1000);
                             let value = format!("value-{}", i);
 
                             total_count += 1;
