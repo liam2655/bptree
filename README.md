@@ -1,6 +1,6 @@
-# Rust Persistent B-tree with Pluggable Storage
+# Rust Persistent B+ tree with Pluggable Storage
 
-A high-performance, configurable B-tree implementation for persistent key-value storage with pluggable storage backends. This library provides a clean, type-safe interface for building persistent data structures with customizable storage backends.
+A high-performance, configurable B+ tree implementation for persistent key-value storage with pluggable storage backends. This library provides a clean, type-safe interface for building persistent data structures with customizable storage backends.
 
 ## Features
 
@@ -12,7 +12,7 @@ A high-performance, configurable B-tree implementation for persistent key-value 
 - 💾 **Persistent**: Atomic writes with crash recovery and metadata management
 - 🧪 **Well Tested**: Comprehensive test suite with integration tests
 - 🔍 **Range Queries**: Efficient range scan capabilities
-- 🗑️ **Full Operations**: Complete CRUD operations with proper B-tree balancing
+- 🗑️ **Full Operations**: Complete CRUD operations with proper B+ tree balancing
 - 🔢 **Entry Tracking**: O(1) access to total entry count
 - 🔄 **Iterators**: Sequential and range iterators with error handling
 - ✅ **Validation**: Built-in tree integrity and invariant checking
@@ -22,12 +22,12 @@ A high-performance, configurable B-tree implementation for persistent key-value 
 ```
 src/
 ├── lib.rs              # Main library interface and exports
-├── bptree/             # B-tree implementation
+├── bptree/             # B+ tree implementation
 │   ├── mod.rs         # Module exports
 │   ├── node.rs        # Unified node structure (internal/leaf)
-│   ├── tree.rs        # Core B-tree operations and persistence
+│   ├── tree.rs        # Core B+ tree operations and persistence
 │   ├── iterator.rs    # Iterator implementation
-│   └── error.rs       # B-tree specific error types
+│   └── error.rs       # B+ tree specific error types
 ├── storage/            # Storage abstraction layer
 │   ├── mod.rs         # Module exports
 │   ├── storage_trait.rs # BlockStorage trait interface
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create storage with 4KB blocks
     let storage = FileBlockStorage::new("./bptree_data", 4096)?;
     
-    // Create B-tree
+    // Create B+ tree
     let mut bptree: BPTree<String, String, _> = BPTree::new(storage)?;
     
     // Insert some data
@@ -110,7 +110,7 @@ impl BlockStorage for CustomStorage {
     }
 }
 
-// B-tree with custom storage
+// B+ tree with custom storage
 let mut tree: BPTree<String, i32, CustomStorage> = BPTree::new(custom_storage)?;
 ```
 
@@ -211,7 +211,7 @@ match bptree.insert(key, value) {
     Err(BPTreeError::Storage(e)) => eprintln!("Storage error: {}", e),
     Err(BPTreeError::NodeCorrupted) => eprintln!("Tree corruption detected"),
     Err(BPTreeError::ValidationFailed(msg)) => eprintln!("Validation failed: {}", msg),
-    _ => eprintln!("Other B-tree error"),
+    _ => eprintln!("Other B+ tree error"),
 }
 ```
 
@@ -233,4 +233,4 @@ match bptree.insert(key, value) {
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
 
-This implementation provides a production-ready foundation for persistent B-tree storage with excellent extensibility through its trait-based storage design and unified node structure.
+This implementation provides a production-ready foundation for persistent B+ tree storage with excellent extensibility through its trait-based storage design and unified node structure.
