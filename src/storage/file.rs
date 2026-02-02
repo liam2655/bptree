@@ -22,7 +22,7 @@ impl FileBlockStorage {
         let mut storage = Self {
             directory,
             block_size,
-            next_block_id: 0,
+            next_block_id: 2, // Reserve 0 and 1 (1 is root)
             free_blocks: Vec::new(),
         };
 
@@ -193,7 +193,7 @@ mod tests {
         let mut storage = FileBlockStorage::new(temp_dir.path(), 1024).unwrap();
 
         let block_id = storage.allocate_block().unwrap();
-        assert_eq!(block_id, 0);
+        assert_eq!(block_id, 2);
 
         // Check block file exists
         assert!(storage.block_path(block_id).exists());

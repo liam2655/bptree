@@ -40,7 +40,7 @@ impl SimulatedStorage {
         Self {
             blocks: Arc::new(Mutex::new(HashMap::new())),
             failure_rate,
-            next_id: Arc::new(Mutex::new(1)), // Start from 1, 0 is reserved for metadata
+            next_id: Arc::new(Mutex::new(2)), // Start from 2, 1 is root, 0 is reserved
         }
     }
 

@@ -23,28 +23,40 @@ where
     S: BlockStorage<Error = StorageError>,
 {
     pub fn new(bptree: &'a BPTree<K, V, S>) -> Result<Self, StorageError> {
-        let mut current_leaf_id = bptree.root_id;
-        let mut current_node = None;
+        if !bptree.root_exists {
+            return Ok(Self {
+                bptree,
+                current_leaf_id: None,
+                current_index: 0,
+                current_node: None,
+            });
+        }
 
-        if let Some(mut id) = current_leaf_id {
-            loop {
-                let node = bptree.load_node(id)?;
-                if node.is_leaf() {
-                    current_leaf_id = Some(id);
-                    current_node = Some(node);
-                    break;
-                }
-                if node.child_ids.is_empty() {
-                    current_leaf_id = None;
-                    break;
-                }
-                id = node.child_ids[0];
+        let mut current_leaf_id = BPTree::<K, V, S>::ROOT_ID;
+        let mut id = current_leaf_id;
+        let current_node;
+
+        loop {
+            let node = bptree.load_node(id)?;
+            if node.is_leaf() {
+                current_leaf_id = id;
+                current_node = Some(node);
+                break;
             }
+            if node.child_ids.is_empty() {
+                return Ok(Self {
+                    bptree,
+                    current_leaf_id: None,
+                    current_index: 0,
+                    current_node: None,
+                });
+            }
+            id = node.child_ids[0];
         }
 
         Ok(Self {
             bptree,
-            current_leaf_id,
+            current_leaf_id: Some(current_leaf_id),
             current_index: 0,
             current_node,
         })
@@ -112,19 +124,18 @@ where
     R: RangeBounds<K>,
 {
     pub fn new(bptree: &'a BPTree<K, V, S>, range: R) -> Result<Self, StorageError> {
-        let root_id = match bptree.root_id {
-            Some(id) => id,
-            None => {
-                return Ok(Self {
-                    bptree,
-                    range,
-                    current_leaf_id: None,
-                    current_index: 0,
-                    current_node: None,
-                    finished: true,
-                })
-            }
-        };
+        if !bptree.root_exists {
+            return Ok(Self {
+                bptree,
+                range,
+                current_leaf_id: None,
+                current_index: 0,
+                current_node: None,
+                finished: true,
+            });
+        }
+
+        let root_id = BPTree::<K, V, S>::ROOT_ID;
 
         // Find the first leaf that could contain the start of the range
         let mut current_id = root_id;
