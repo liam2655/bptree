@@ -89,25 +89,7 @@ struct CustomStorage {
 impl BlockStorage for CustomStorage {
     type Error = std::io::Error;
     
-    fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error> {
-        // Custom read implementation
-        todo!()
-    }
-    
-    fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error> {
-        // Custom write implementation
-        todo!()
-    }
-    
-    fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
-        // Custom allocation logic
-        todo!()
-    }
-    
-    fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
-        // Custom deallocation logic
-        todo!()
-    }
+    // implement functions here
 }
 
 // B+ tree with custom storage

@@ -166,14 +166,6 @@ impl BlockStorage for FileBlockStorage {
     fn sync(&mut self) -> Result<(), Self::Error> {
         self.save_metadata()
     }
-
-    fn total_blocks(&self) -> Result<BlockId, Self::Error> {
-        Ok(self.next_block_id)
-    }
-
-    fn free_blocks(&self) -> Result<BlockId, Self::Error> {
-        Ok(self.free_blocks.len() as BlockId)
-    }
 }
 
 /// Metadata stored alongside the block files
@@ -193,7 +185,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
         assert_eq!(storage.block_size(), 4096);
-        assert_eq!(storage.total_blocks().unwrap(), 0);
     }
 
     #[test]
@@ -203,7 +194,6 @@ mod tests {
 
         let block_id = storage.allocate_block().unwrap();
         assert_eq!(block_id, 0);
-        assert_eq!(storage.total_blocks().unwrap(), 1);
 
         // Check block file exists
         assert!(storage.block_path(block_id).exists());
@@ -232,6 +222,5 @@ mod tests {
         storage.deallocate_block(block_id).unwrap();
 
         assert!(!storage.block_path(block_id).exists());
-        assert_eq!(storage.free_blocks().unwrap(), 1);
     }
 }

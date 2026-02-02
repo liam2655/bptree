@@ -24,12 +24,6 @@ pub trait BlockStorage: Send + Sync {
 
     /// Sync all pending writes to disk
     fn sync(&mut self) -> Result<(), Self::Error>;
-
-    /// Get the total number of allocated blocks
-    fn total_blocks(&self) -> Result<BlockId, Self::Error>;
-
-    /// Get the number of free blocks
-    fn free_blocks(&self) -> Result<BlockId, Self::Error>;
 }
 
 /// Common errors for block storage operations

@@ -102,16 +102,6 @@ impl BlockStorage for SimulatedStorage {
         Ok(())
     }
 
-    fn total_blocks(&self) -> Result<BlockId, Self::Error> {
-        let blocks = self.blocks.lock().unwrap();
-        Ok(blocks.len() as BlockId)
-    }
-
-    fn free_blocks(&self) -> Result<BlockId, Self::Error> {
-        // For simulation, we'll say we have unlimited free blocks
-        Ok(u64::MAX)
-    }
-
     fn block_size(&self) -> usize {
         4096
     }
