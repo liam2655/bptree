@@ -5,9 +5,13 @@ use crate::storage::{BlockId, BlockStorage, StorageError};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
+/// B-tree metadata version
+const METADATA_V1: u8 = 1;
+
 /// B-tree metadata stored at the beginning of the root block (block 1)
 #[derive(Debug, Serialize, Deserialize)]
 struct BPTreeMetadata {
+    version: u8,
     block_size: usize,
     max_keys_per_node: usize,
     entry_count: u64,
@@ -15,6 +19,7 @@ struct BPTreeMetadata {
 }
 
 /// Persistent B-tree implementation with pluggable storage
+#[derive(Debug)]
 pub struct BPTree<K, V, S>
 where
     K: Ord + Clone + Serialize + for<'de> Deserialize<'de>,
@@ -63,13 +68,34 @@ where
     fn load_or_init_metadata(&mut self) -> Result<(), StorageError> {
         match self.storage.read_block(Self::ROOT_ID) {
             Ok(data) => {
-                if let Ok(metadata) = bincode::deserialize::<BPTreeMetadata>(&data) {
-                    self.root_exists = metadata.root_exists;
-                    self.max_keys_per_node = metadata.max_keys_per_node;
-                    self.entry_count = metadata.entry_count;
-                    Ok(())
-                } else {
-                    self.initialize_metadata()
+                match bincode::deserialize::<BPTreeMetadata>(&data) {
+                    Ok(metadata) => {
+                        if metadata.version != METADATA_V1 {
+                            return Err(StorageError::VersionMismatch {
+                                expected: METADATA_V1,
+                                actual: metadata.version,
+                            });
+                        }
+                        if metadata.block_size != self.storage.block_size() {
+                            return Err(StorageError::MetadataMismatch(format!(
+                                "Block size mismatch: metadata says {}, storage says {}",
+                                metadata.block_size,
+                                self.storage.block_size()
+                            )));
+                        }
+                        self.root_exists = metadata.root_exists;
+                        self.max_keys_per_node = metadata.max_keys_per_node;
+                        self.entry_count = metadata.entry_count;
+                        Ok(())
+                    }
+                    Err(_) => {
+                        // If block is all zeros, it might be an uninitialized block 1
+                        if data.iter().all(|&b| b == 0) {
+                            self.initialize_metadata()
+                        } else {
+                            Err(StorageError::BlockCorrupted(Self::ROOT_ID))
+                        }
+                    }
                 }
             }
             Err(StorageError::BlockNotFound(_)) => {
@@ -85,6 +111,7 @@ where
         self.entry_count = 0;
 
         let metadata = BPTreeMetadata {
+            version: METADATA_V1,
             block_size: self.storage.block_size(),
             max_keys_per_node: self.max_keys_per_node,
             entry_count: 0,
@@ -111,6 +138,7 @@ where
     ) -> Result<(), StorageError> {
         let data = if node_id == Self::ROOT_ID {
             let metadata = BPTreeMetadata {
+                version: METADATA_V1,
                 block_size: self.storage.block_size(),
                 max_keys_per_node: self.max_keys_per_node,
                 entry_count: self.entry_count,
@@ -134,7 +162,23 @@ where
         let data = self.storage.read_block(node_id)?;
         if node_id == Self::ROOT_ID {
             let mut cursor = std::io::Cursor::new(&data);
-            let _metadata: BPTreeMetadata = bincode::deserialize_from(&mut cursor)?;
+            let metadata: BPTreeMetadata = bincode::deserialize_from(&mut cursor)?;
+
+            // Verify metadata
+            if metadata.version != METADATA_V1 {
+                return Err(StorageError::VersionMismatch {
+                    expected: METADATA_V1,
+                    actual: metadata.version,
+                });
+            }
+            if metadata.block_size != self.storage.block_size() {
+                return Err(StorageError::MetadataMismatch(format!(
+                    "Block size mismatch in root: metadata says {}, storage says {}",
+                    metadata.block_size,
+                    self.storage.block_size()
+                )));
+            }
+
             let node: UniversalNode<K, V> = bincode::deserialize_from(&mut cursor)?;
             Ok(node)
         } else {
@@ -149,6 +193,7 @@ where
             self.save_node(Self::ROOT_ID, &root)?;
         } else {
             let metadata = BPTreeMetadata {
+                version: METADATA_V1,
                 block_size: self.storage.block_size(),
                 max_keys_per_node: self.max_keys_per_node,
                 entry_count: self.entry_count,
@@ -1070,5 +1115,60 @@ mod tests {
 
         let full_range = bptree.range(..).unwrap();
         assert_eq!(full_range.len(), 10);
+    }
+
+    #[test]
+    fn test_tree_version_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+
+        // Initialize tree
+        let mut storage = {
+            let _bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
+            _bptree.storage
+        };
+
+        // Manually corrupt root block with wrong version
+        let mut data = storage
+            .read_block(BPTree::<u32, u32, FileBlockStorage>::ROOT_ID)
+            .unwrap();
+        let mut metadata: BPTreeMetadata = bincode::deserialize(&data).unwrap();
+        metadata.version = 99;
+        let metadata_data = bincode::serialize(&metadata).unwrap();
+        data[..metadata_data.len()].copy_from_slice(&metadata_data);
+        storage
+            .write_block(BPTree::<u32, u32, FileBlockStorage>::ROOT_ID, &data)
+            .unwrap();
+
+        // Try to open
+        let result = BPTree::<u32, u32, _>::new(storage);
+        match result {
+            Err(StorageError::VersionMismatch { expected, actual }) => {
+                assert_eq!(expected, METADATA_V1);
+                assert_eq!(actual, 99);
+            }
+            _ => panic!("Expected VersionMismatch, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_tree_block_size_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileBlockStorage::new(temp_dir.path(), 4096).unwrap();
+
+        // Initialize tree
+        {
+            let _bptree: BPTree<u32, u32, _> = BPTree::new(storage).unwrap();
+        }
+
+        // Try to open with different block size storage
+        let storage2 = FileBlockStorage::new(temp_dir.path(), 2048).unwrap();
+        let result = BPTree::<u32, u32, _>::new(storage2);
+        match result {
+            Err(StorageError::MetadataMismatch(msg)) => {
+                assert!(msg.contains("Block size mismatch"));
+            }
+            _ => panic!("Expected MetadataMismatch, got {:?}", result),
+        }
     }
 }

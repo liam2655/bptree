@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// File-based block storage with flat directory structure
+#[derive(Debug)]
 pub struct FileBlockStorage {
     directory: PathBuf,
     block_size: usize,
@@ -53,6 +54,12 @@ impl FileBlockStorage {
             file.read_to_end(&mut buf)?;
 
             let metadata: FileMetadata = bincode::deserialize(&buf)?;
+            if metadata.version != FILE_METADATA_V1 {
+                return Err(StorageError::VersionMismatch {
+                    expected: FILE_METADATA_V1,
+                    actual: metadata.version,
+                });
+            }
             self.next_block_id = metadata.next_block_id;
             self.free_blocks = metadata.free_blocks;
         } else {
@@ -66,6 +73,7 @@ impl FileBlockStorage {
     /// Save metadata to file
     fn save_metadata(&self) -> Result<(), StorageError> {
         let metadata = FileMetadata {
+            version: FILE_METADATA_V1,
             next_block_id: self.next_block_id,
             free_blocks: self.free_blocks.clone(),
         };
@@ -168,9 +176,13 @@ impl BlockStorage for FileBlockStorage {
     }
 }
 
+/// File metadata version
+const FILE_METADATA_V1: u8 = 1;
+
 /// Metadata stored alongside the block files
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct FileMetadata {
+    version: u8,
     next_block_id: BlockId,
     free_blocks: Vec<BlockId>,
 }
@@ -222,5 +234,39 @@ mod tests {
         storage.deallocate_block(block_id).unwrap();
 
         assert!(!storage.block_path(block_id).exists());
+    }
+
+    #[test]
+    fn test_version_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_path_buf();
+
+        // Create valid storage first
+        {
+            let _storage = FileBlockStorage::new(&path, 1024).unwrap();
+        }
+
+        // Manually corrupt the metadata file with a different version
+        let metadata_path = path.join("metadata.bin");
+        let mut file = File::open(&metadata_path).unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+
+        let mut metadata: FileMetadata = bincode::deserialize(&buf).unwrap();
+        metadata.version = 99; // Incompatible version
+        let data = bincode::serialize(&metadata).unwrap();
+
+        let mut file = File::create(&metadata_path).unwrap();
+        file.write_all(&data).unwrap();
+
+        // Try to open it
+        let result = FileBlockStorage::new(&path, 1024);
+        match result {
+            Err(StorageError::VersionMismatch { expected, actual }) => {
+                assert_eq!(expected, FILE_METADATA_V1);
+                assert_eq!(actual, 99);
+            }
+            _ => panic!("Expected VersionMismatch error, got {:?}", result),
+        }
     }
 }

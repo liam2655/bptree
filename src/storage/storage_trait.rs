@@ -41,6 +41,10 @@ pub enum StorageError {
     InvalidBlockSize { expected: usize, actual: usize },
     #[error("Serialization error: {0}")]
     Serialization(String),
+    #[error("Version mismatch: expected {expected}, got {actual}")]
+    VersionMismatch { expected: u8, actual: u8 },
+    #[error("Metadata mismatch: {0}")]
+    MetadataMismatch(String),
 }
 
 impl From<bincode::Error> for StorageError {
