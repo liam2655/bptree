@@ -1,4 +1,5 @@
 use super::storage_trait::{BlockId, BlockStorage, StorageError};
+use async_trait::async_trait;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -112,10 +113,11 @@ impl FileBlockStorage {
     }
 }
 
+#[async_trait]
 impl BlockStorage for FileBlockStorage {
     type Error = StorageError;
 
-    fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error> {
+    async fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error> {
         let path = self.block_path(id);
 
         if !path.exists() {
@@ -129,13 +131,13 @@ impl BlockStorage for FileBlockStorage {
         Ok(data)
     }
 
-    fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error> {
+    async fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error> {
         let path = self.block_path(id);
         self.write_block_file(&path, data)?;
         self.save_metadata()
     }
 
-    fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
+    async fn allocate_block(&mut self) -> Result<BlockId, Self::Error> {
         let block_id = if let Some(free_id) = self.free_blocks.pop() {
             free_id
         } else {
@@ -153,7 +155,7 @@ impl BlockStorage for FileBlockStorage {
         Ok(block_id)
     }
 
-    fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
+    async fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error> {
         let path = self.block_path(id);
 
         if path.exists() {
@@ -167,7 +169,7 @@ impl BlockStorage for FileBlockStorage {
         Ok(())
     }
 
-    fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
+    async fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
         for id in &ids {
             let path = self.block_path(*id);
             if path.exists() {
@@ -185,7 +187,7 @@ impl BlockStorage for FileBlockStorage {
         self.block_size
     }
 
-    fn sync(&mut self) -> Result<(), Self::Error> {
+    async fn sync(&mut self) -> Result<(), Self::Error> {
         self.save_metadata()
     }
 }
@@ -213,39 +215,39 @@ mod tests {
         assert_eq!(storage.block_size(), 4096);
     }
 
-    #[test]
-    fn test_block_allocation() {
+    #[tokio::test]
+    async fn test_block_allocation() {
         let temp_dir = TempDir::new().unwrap();
         let mut storage = FileBlockStorage::new(temp_dir.path(), 1024).unwrap();
 
-        let block_id = storage.allocate_block().unwrap();
+        let block_id = storage.allocate_block().await.unwrap();
         assert_eq!(block_id, 2);
 
         // Check block file exists
         assert!(storage.block_path(block_id).exists());
     }
 
-    #[test]
-    fn test_block_write_read() {
+    #[tokio::test]
+    async fn test_block_write_read() {
         let temp_dir = TempDir::new().unwrap();
         let mut storage = FileBlockStorage::new(temp_dir.path(), 1024).unwrap();
 
-        let block_id = storage.allocate_block().unwrap();
+        let block_id = storage.allocate_block().await.unwrap();
         let data = vec![42u8; 1024];
 
-        storage.write_block(block_id, &data).unwrap();
-        let read_data = storage.read_block(block_id).unwrap();
+        storage.write_block(block_id, &data).await.unwrap();
+        let read_data = storage.read_block(block_id).await.unwrap();
 
         assert_eq!(data, read_data);
     }
 
-    #[test]
-    fn test_block_deallocation() {
+    #[tokio::test]
+    async fn test_block_deallocation() {
         let temp_dir = TempDir::new().unwrap();
         let mut storage = FileBlockStorage::new(temp_dir.path(), 1024).unwrap();
 
-        let block_id = storage.allocate_block().unwrap();
-        storage.deallocate_block(block_id).unwrap();
+        let block_id = storage.allocate_block().await.unwrap();
+        storage.deallocate_block(block_id).await.unwrap();
 
         assert!(!storage.block_path(block_id).exists());
     }

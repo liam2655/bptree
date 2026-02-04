@@ -84,7 +84,7 @@ where
 
         // Check keys are sorted and unique
         for i in 1..self.keys.len() {
-            if self.keys[i-1] >= self.keys[i] {
+            if self.keys[i - 1] >= self.keys[i] {
                 return Err(StorageError::BlockCorrupted(0));
             }
         }
@@ -314,7 +314,8 @@ where
     {
         if self.is_leaf() {
             if let Some(key) = left_sibling.keys.pop()
-                && let Some(value) = left_sibling.values.pop() {
+                && let Some(value) = left_sibling.values.pop()
+            {
                 self.keys.insert(0, key.clone());
                 self.values.insert(0, value);
                 *parent_separator = key;
@@ -322,7 +323,8 @@ where
         } else {
             // Internal node redistribution (B-tree style)
             if let Some(key) = left_sibling.keys.pop()
-                && let Some(child) = left_sibling.child_ids.pop() {
+                && let Some(child) = left_sibling.child_ids.pop()
+            {
                 // Parent separator comes down to this node
                 self.keys.insert(0, parent_separator.clone());
                 self.child_ids.insert(0, child);

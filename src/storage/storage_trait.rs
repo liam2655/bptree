@@ -1,28 +1,30 @@
+use async_trait::async_trait;
 use std::error::Error;
 use thiserror::Error;
 
 pub type BlockId = u64;
 
 /// Trait for persistent block storage backends
+#[async_trait]
 pub trait BlockStorage: Send + Sync {
     type Error: Error + Send + Sync + 'static;
 
     /// Read a block by ID
-    fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error>;
+    async fn read_block(&self, id: BlockId) -> Result<Vec<u8>, Self::Error>;
 
     /// Write data to a block
-    fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error>;
+    async fn write_block(&mut self, id: BlockId, data: &[u8]) -> Result<(), Self::Error>;
 
     /// Allocate a new block and return its ID
-    fn allocate_block(&mut self) -> Result<BlockId, Self::Error>;
+    async fn allocate_block(&mut self) -> Result<BlockId, Self::Error>;
 
     /// Deallocate a block (mark as free)
-    fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error>;
+    async fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error>;
 
     /// Deallocate multiple blocks at once
-    fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
+    async fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
         for id in ids {
-            self.deallocate_block(id)?;
+            self.deallocate_block(id).await?;
         }
         Ok(())
     }
@@ -31,7 +33,7 @@ pub trait BlockStorage: Send + Sync {
     fn block_size(&self) -> usize;
 
     /// Sync all pending writes to disk
-    fn sync(&mut self) -> Result<(), Self::Error>;
+    async fn sync(&mut self) -> Result<(), Self::Error>;
 }
 
 /// Common errors for block storage operations

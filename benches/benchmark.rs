@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use rand::{thread_rng, Rng};
+use criterion::{Criterion, criterion_group, criterion_main};
+use rand::{Rng, thread_rng};
 use std::hint::black_box;
 
 use bptree::{BPTree, BlockId, BlockStorage, StorageError};
