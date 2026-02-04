@@ -132,7 +132,8 @@ fn bench_lookup(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let storage = SimulatedStorage::new(0.0, Duration::from_nanos(1));
     let bptree = rt.block_on(async {
-        let mut bptree: BPTree<u64, String, _> = BPTree::new(storage).await.expect("Failed to create B-tree");
+        let mut bptree: BPTree<u64, String, _> =
+            BPTree::new(storage).await.expect("Failed to create B-tree");
 
         // Pre-populate with data
         for i in 0..1000 {
