@@ -19,6 +19,14 @@ pub trait BlockStorage: Send + Sync {
     /// Deallocate a block (mark as free)
     fn deallocate_block(&mut self, id: BlockId) -> Result<(), Self::Error>;
 
+    /// Deallocate multiple blocks at once
+    fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
+        for id in ids {
+            self.deallocate_block(id)?;
+        }
+        Ok(())
+    }
+
     /// Get the fixed block size for this storage
     fn block_size(&self) -> usize;
 

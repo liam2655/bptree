@@ -332,6 +332,31 @@ where
         self.entry_count == 0
     }
 
+    /// Get all block IDs used by the B+ tree
+    pub fn get_all_block_ids(&self) -> Result<Vec<BlockId>, StorageError> {
+        let mut ids = Vec::new();
+        ids.push(Self::ROOT_ID);
+        if self.root_exists {
+            self.collect_blocks_recursive(Self::ROOT_ID, &mut ids)?;
+        }
+        Ok(ids)
+    }
+
+    fn collect_blocks_recursive(
+        &self,
+        node_id: BlockId,
+        ids: &mut Vec<BlockId>,
+    ) -> Result<(), StorageError> {
+        let node = self.load_node(node_id)?;
+        if !node.is_leaf() {
+            for child_id in node.child_ids {
+                ids.push(child_id);
+                self.collect_blocks_recursive(child_id, ids)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn clear(&mut self) -> Result<(), StorageError> {
         if self.root_exists {
             self.deallocate_recursive(Self::ROOT_ID)?;

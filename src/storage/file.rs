@@ -167,6 +167,20 @@ impl BlockStorage for FileBlockStorage {
         Ok(())
     }
 
+    fn deallocate_blocks(&mut self, ids: Vec<BlockId>) -> Result<(), Self::Error> {
+        for id in &ids {
+            let path = self.block_path(*id);
+            if path.exists() {
+                fs::remove_file(&path)?;
+            }
+        }
+
+        for id in ids {
+            self.free_blocks.push(id);
+        }
+        self.save_metadata()
+    }
+
     fn block_size(&self) -> usize {
         self.block_size
     }
